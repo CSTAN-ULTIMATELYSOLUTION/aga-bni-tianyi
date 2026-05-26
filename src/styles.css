@@ -94,6 +94,9 @@ svg { width: 18px; height: 18px; }
 .score-badge.large { margin: 16px auto; width: 128px; }
 .score-badge.large strong { font-size: 64px; }
 .activity-row strong { display: flex; align-items: center; gap: 6px; }
+.activity-section { border: 1px solid var(--border); border-radius: 18px; padding: 13px; display: grid; gap: 10px; background: rgba(255,255,255,.7); }
+.activity-section > div:first-child strong, .activity-section > div:first-child span { display: block; }
+.activity-section > div:first-child span { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .stepper { display: flex; align-items: center; gap: 10px; }
 .stepper button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: white; color: var(--text); font-size: 19px; }
 .stepper b { min-width: 26px; text-align: center; font-family: "Bebas Neue", sans-serif; font-size: 32px; color: var(--gold); }
@@ -103,6 +106,8 @@ svg { width: 18px; height: 18px; }
 .toggle-row { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.055); border: 1px solid var(--border); border-radius: 16px; padding: 13px; font-weight: 800; }
 .toggle-row input { width: 20px; min-height: 20px; }
 .proof-box { border: 1px dashed rgba(245,197,66,.35); border-radius: 18px; padding: 13px; display: grid; gap: 10px; background: rgba(245,197,66,.06); }
+.inline-proof { border: 1px dashed rgba(217,48,37,.34); border-radius: 14px; padding: 11px; display: grid; gap: 8px; background: rgba(217,48,37,.06); }
+.inline-proof small { color: var(--orange); font-size: 12px; font-weight: 800; }
 .button-row { display: grid; grid-template-columns: .8fr 1.2fr; gap: 10px; }
 .receipt { text-align: center; }
 .receipt-icon { width: 46px; height: 46px; }

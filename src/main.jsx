@@ -616,6 +616,7 @@ function MemberCheckLogin({ onVerified, onDemo }) {
   const filteredMemberOptions = memberOptions.filter((member) =>
     [member.full_name, member.company].filter(Boolean).join(" ").toLowerCase().includes(memberSearch.toLowerCase())
   );
+  const showMemberOptions = memberSearch.trim().length > 0;
 
   async function checkMemberPair(event) {
     event.preventDefault();
@@ -694,25 +695,27 @@ function MemberCheckLogin({ onVerified, onDemo }) {
               required={!selectedMember}
             />
           </Label>
-          <div className="member-option-list">
-            {membersLoading && <p className="muted">Loading members 载入会员名单...</p>}
-            {!membersLoading && filteredMemberOptions.length === 0 && <p className="muted">No member found. 找不到会员。</p>}
-            {!membersLoading && filteredMemberOptions.slice(0, 12).map((member) => (
-              <button
-                className={selectedMember?.id === member.id ? "member-option selected" : "member-option"}
-                key={member.id}
-                type="button"
-                onClick={() => {
-                  setSelectedMember(member);
-                  setMemberSearch(member.full_name);
-                  setMessage("");
-                }}
-              >
-                <strong>{member.full_name}</strong>
-                {member.company && <span>{member.company}</span>}
-              </button>
-            ))}
-          </div>
+          {showMemberOptions && (
+            <div className="member-option-list">
+              {membersLoading && <p className="muted">Loading members 载入会员名单...</p>}
+              {!membersLoading && filteredMemberOptions.length === 0 && <p className="muted">No member found. 找不到会员。</p>}
+              {!membersLoading && filteredMemberOptions.slice(0, 12).map((member) => (
+                <button
+                  className={selectedMember?.id === member.id ? "member-option selected" : "member-option"}
+                  key={member.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedMember(member);
+                    setMemberSearch(member.full_name);
+                    setMessage("");
+                  }}
+                >
+                  <strong>{member.full_name}</strong>
+                  {member.company && <span>{member.company}</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <Label text="Registered email 注册电邮">
           <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
@@ -836,6 +839,13 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
 
   const score = calcScore(form);
   const evidenceKinds = Object.keys(FIELD_META);
+  const requiredEvidenceKinds = evidenceKinds.filter((kind) => {
+    if (kind === "referral") return Number(form.referrals) > 0;
+    if (kind === "visitor") return Number(form.visitors) > 0;
+    return Number(form[kind]) > 0;
+  });
+  const activeTyfcbTier = [30000, 20000, 10000, 1000, 100].find((amount) => Number(form.tyfcb) >= amount);
+  const hasProof = (kind) => Array.from(files[kind] || []).length > 0;
 
   async function submit(event) {
     event.preventDefault();
@@ -848,6 +858,11 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
     const invalidFile = selectedFiles.find((file) => !file.type.startsWith("image/") || file.size > MAX_EVIDENCE_BYTES);
     if (invalidFile) {
       setError("Proof photos must be images under 5MB. 证明照片必须是 5MB 以下的图片。");
+      return;
+    }
+    const missingProofKind = requiredEvidenceKinds.find((kind) => !hasProof(kind));
+    if (missingProofKind) {
+      setError(`${FIELD_META[missingProofKind].label} requires at least one proof image. ${FIELD_META[missingProofKind].zh} 需要上传至少一张证明照片。`);
       return;
     }
     setBusy(true);
@@ -934,32 +949,33 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
         </div>
       </div>
 
-      <ActivityStepper icon={<Handshake />} title="1-2-1" sub="1 pt each, max 2 每次1分" value={form.one_to_one} max={2} onChange={(value) => setForm({ ...form, one_to_one: value })} />
-      <ActivityStepper title="Training 培训" sub="5 pts each 每次5分" value={form.training} max={3} onChange={(value) => setForm({ ...form, training: value })} />
-      <ActivityStepper title="Referral 引荐" sub="5 pts each 每个5分" value={form.referrals} max={50} onChange={(value) => setForm({ ...form, referrals: value })} />
-      <Label text="TYFCB 引荐成交额 RM">
-        <input type="number" min="0" value={form.tyfcb} onChange={(e) => setForm({ ...form, tyfcb: e.target.value })} placeholder="5000" />
-      </Label>
-      <div className="tier-row">
-        {[100, 1000, 10000, 20000, 30000].map((amount) => (
-          <span key={amount} className={Number(form.tyfcb) >= amount ? "active" : ""}>
-            RM{amount >= 1000 ? `${amount / 1000}k` : amount}
-          </span>
-        ))}
-        <strong>{tierPoints(Number(form.tyfcb) || 0)} pts</strong>
-      </div>
-      <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => setForm({ ...form, visitors: value })} />
+      <ActivitySection title="1-2-1" sub="1 pt each, max 2 每次1分" kind="one_to_one" showProof={Number(form.one_to_one) > 0} files={files} setFiles={setFiles}>
+        <ActivityStepper icon={<Handshake />} title="1-2-1" sub="1 pt each, max 2 每次1分" value={form.one_to_one} max={2} onChange={(value) => setForm({ ...form, one_to_one: value })} />
+      </ActivitySection>
+      <ActivitySection title="Training 培训" sub="5 pts each 每次5分" kind="training" showProof={Number(form.training) > 0} files={files} setFiles={setFiles}>
+        <ActivityStepper title="Training 培训" sub="5 pts each 每次5分" value={form.training} max={50} onChange={(value) => setForm({ ...form, training: value })} />
+      </ActivitySection>
+      <ActivitySection title="Referral 引荐" sub="5 pts each 每个5分" kind="referral" showProof={Number(form.referrals) > 0} files={files} setFiles={setFiles}>
+        <ActivityStepper title="Referral 引荐" sub="5 pts each 每个5分" value={form.referrals} max={50} onChange={(value) => setForm({ ...form, referrals: value })} />
+      </ActivitySection>
+      <ActivitySection title="TYFCB 引荐成交额" sub="Upload proof when amount is entered 输入金额后需上传证明" kind="tyfcb" showProof={Number(form.tyfcb) > 0} files={files} setFiles={setFiles}>
+        <Label text="TYFCB 引荐成交额 RM">
+          <input type="number" min="0" value={form.tyfcb} onChange={(e) => setForm({ ...form, tyfcb: e.target.value })} placeholder="5000" />
+        </Label>
+        <div className="tier-row">
+          {[100, 1000, 10000, 20000, 30000].map((amount) => (
+            <span key={amount} className={activeTyfcbTier === amount ? "active" : ""}>
+              RM{amount >= 1000 ? `${amount / 1000}k` : amount}
+            </span>
+          ))}
+          <strong>{tierPoints(Number(form.tyfcb) || 0)} pts</strong>
+        </div>
+      </ActivitySection>
+      <ActivitySection title="Visitor 访客" sub="10 pts each 每位10分" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles}>
+        <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => setForm({ ...form, visitors: value })} />
+      </ActivitySection>
       <div className="notice">
         出席与访客加入由管理员确认。Attendance and visitor joined are confirmed by admin.
-      </div>
-
-      <div className="proof-box">
-          <h3>可选证明照片 Optional proof photos</h3>
-          {evidenceKinds.map((kind) => (
-            <Label key={kind} text={`${FIELD_META[kind].label} ${FIELD_META[kind].zh}`}>
-              <input type="file" accept="image/*" multiple onChange={(e) => setFiles({ ...files, [kind]: e.target.files })} />
-            </Label>
-          ))}
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -973,6 +989,27 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
         </Button>
       </div>
     </form>
+  );
+}
+
+function ActivitySection({ title, sub, kind, showProof, files, setFiles, children }) {
+  const selectedCount = Array.from(files[kind] || []).length;
+  return (
+    <section className="activity-section">
+      <div>
+        <strong>{title}</strong>
+        <span>{sub}</span>
+      </div>
+      {children}
+      {showProof && (
+        <div className="inline-proof">
+          <Label text={`${FIELD_META[kind].label} proof image 证明照片`}>
+            <input type="file" accept="image/*" multiple onChange={(e) => setFiles({ ...files, [kind]: e.target.files })} />
+          </Label>
+          <small>{selectedCount ? `${selectedCount} image(s) selected` : "Required before submit 提交前必须上传"}</small>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1030,12 +1067,9 @@ function SubmissionReceipt() {
       return;
     }
     supabase
-      .from("submission_details")
-      .select("*")
-      .eq("id", id)
-      .single()
+      .rpc("submission_receipt", { p_submission_id: id })
       .then(({ data }) => {
-        setSubmission(data);
+        setSubmission(data?.[0] || null);
         setLoading(false);
       });
   }, [id]);
@@ -1053,8 +1087,9 @@ function SubmissionReceipt() {
       ) : (
         <section className="panel receipt">
           <CheckCircle2 className="receipt-icon" />
-          <p>Read-only submission 已锁定提交</p>
+          <p>Successful submit 提交成功</p>
           <h2>{submission.week_label}</h2>
+          <p className="muted">This read-only page is available from your confirmation email link.</p>
           {submission.status === "archived" && (
             <div className="notice">
               此提交已归档，可重新提交。This submission was archived; please submit again.
