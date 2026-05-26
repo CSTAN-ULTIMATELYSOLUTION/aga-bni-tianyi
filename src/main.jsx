@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Award,
   BarChart3,
@@ -89,9 +89,12 @@ function NavigateToGameSubmission() {
 }
 
 function Shell({ children, wide = false }) {
+  const { pathname } = useLocation();
+  const showSiteNav = pathname === "/website";
+
   return (
     <main className={wide ? "shell shell-wide" : "shell"}>
-      <SiteNav />
+      {showSiteNav && <SiteNav />}
       {children}
       <FeatureBanner />
       <FooterBanner />
@@ -477,6 +480,7 @@ function GameLeaderboard() {
 function WeeklyUpdatePage() {
   const [session, setSession] = useState(null);
   const [member, setMember] = useState(null);
+  const [checkedAccess, setCheckedAccess] = useState(null);
   const [demoMember, setDemoMember] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-member") === "1");
   const [loading, setLoading] = useState(true);
 
@@ -513,8 +517,15 @@ function WeeklyUpdatePage() {
   return (
     <Shell>
       <HeroHeader />
-      {!session || !member ? (
-        <MemberOtpLogin onDemo={() => {
+      {checkedAccess ? (
+        <WeeklyDesk
+          member={checkedAccess.member}
+          initialWeek={checkedAccess.week}
+          verifiedEmail={checkedAccess.email}
+          onExit={() => setCheckedAccess(null)}
+        />
+      ) : !session || !member ? (
+        <MemberCheckLogin onVerified={setCheckedAccess} onDemo={() => {
           sessionStorage.setItem("tianyi-demo-member", "1");
           setDemoMember(true);
         }} />
@@ -567,20 +578,60 @@ function HeroHeader({
   );
 }
 
-function MemberOtpLogin({ onDemo }) {
-  const [phase, setPhase] = useState("search");
-  const [form, setForm] = useState({ name: "", email: "", otp: "" });
-  const [found, setFound] = useState(null);
+function MemberCheckLogin({ onVerified, onDemo }) {
+  const [form, setForm] = useState({ email: "" });
+  const [weeks, setWeeks] = useState([]);
+  const [selectedWeek, setSelectedWeek] = useState(null);
+  const [memberOptions, setMemberOptions] = useState([]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [membersLoading, setMembersLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function findMember(event) {
+  useEffect(() => {
+    let mounted = true;
+    const availableWeeks = currentSubmissionWeeks();
+    setWeeks(availableWeeks);
+    setSelectedWeek(availableWeeks[0]);
+    supabase
+      .from("members")
+      .select("id,full_name,company")
+      .order("full_name")
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          setMessage("Unable to load member list. Please refresh and try again. 无法载入会员名单，请刷新。");
+          setMemberOptions(isLocalPreview() ? DEMO_MEMBERS.map(({ id, full_name, company }) => ({ id, full_name, company })) : []);
+        } else {
+          setMemberOptions(data || []);
+        }
+        setMembersLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const filteredMemberOptions = memberOptions.filter((member) =>
+    [member.full_name, member.company].filter(Boolean).join(" ").toLowerCase().includes(memberSearch.toLowerCase())
+  );
+
+  async function checkMemberPair(event) {
     event.preventDefault();
+    if (!selectedWeek) {
+      setMessage("Please select a week first. 请先选择周次。");
+      return;
+    }
+    if (!selectedMember) {
+      setMessage("Please select your name from the member list first. 请先从会员名单选择姓名。");
+      return;
+    }
     setBusy(true);
     setMessage("");
-    const { data, error } = await supabase.rpc("find_member", {
+    const { data, error } = await supabase.rpc("check_member_pair", {
+      p_member_id: selectedMember.id,
       p_email: normalizeEmail(form.email),
-      p_name: form.name.trim(),
     });
     const match = data?.[0];
     if (error || !match) {
@@ -588,31 +639,18 @@ function MemberOtpLogin({ onDemo }) {
       setBusy(false);
       return;
     }
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: normalizeEmail(form.email),
-      options: {
-        shouldCreateUser: true,
+    onVerified({
+      member: {
+        id: match.member_id,
+        member_id: match.member_id,
+        full_name: match.full_name,
+        email: match.email,
+        buddy_team_id: match.buddy_team_id,
+        team_no: match.team_no,
       },
-    });
-    if (otpError) setMessage(otpError.message);
-    else {
-      setFound(match);
-      setPhase("otp");
-      setMessage("OTP sent to your email. 验证码已发送到你的电邮。");
-    }
-    setBusy(false);
-  }
-
-  async function verifyOtp(event) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    const { error } = await supabase.auth.verifyOtp({
+      week: selectedWeek,
       email: normalizeEmail(form.email),
-      token: form.otp.trim(),
-      type: "email",
     });
-    if (error) setMessage(error.message);
     setBusy(false);
   }
 
@@ -622,59 +660,84 @@ function MemberOtpLogin({ onDemo }) {
         <Search />
         <div>
           <h2>Find your member record 查找会员资料</h2>
-          <p>Enter your registered name and email to receive OTP.</p>
+          <p>Select the week, choose your name, and enter your registered email to start.</p>
         </div>
       </div>
 
-      {phase === "search" ? (
-        <form onSubmit={findMember} className="stack">
-          <Label text="Full name 姓名">
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          </Label>
-          <Label text="Email 电邮">
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-          </Label>
-          <Button disabled={busy}>
-            {busy ? <Loader2 className="spin" /> : <Mail />}
-            Send OTP 发送验证码
-          </Button>
-          {isLocalPreview() && (
-            <button className="ghost-button" type="button" onClick={onDemo}>
-              <Eye /> Preview as member 会员预览
+      <form onSubmit={checkMemberPair} className="stack">
+        <div className="week-grid compact">
+          {weeks.map((week) => (
+            <button
+              className={selectedWeek?.id === week.id ? "week-card selected" : "week-card"}
+              key={week.id}
+              type="button"
+              onClick={() => setSelectedWeek(week)}
+            >
+              <div>
+                <strong>{week.label}</strong>
+                <span>{selectedWeek?.id === week.id ? "Selected 已选择" : "Tap to select 点击选择"}</span>
+              </div>
+              {selectedWeek?.id === week.id ? <CheckCircle2 /> : <ChevronRight />}
             </button>
-          )}
-        </form>
-      ) : (
-        <form onSubmit={verifyOtp} className="stack">
-          <div className="member-found">
-            <CheckCircle2 />
-            <div>
-              <strong>{found.full_name}</strong>
-              <span>{found.email}</span>
-            </div>
-          </div>
-          <Label text="Email OTP 电邮验证码">
-            <input inputMode="numeric" value={form.otp} onChange={(e) => setForm({ ...form, otp: e.target.value })} required />
+          ))}
+        </div>
+        <div className="member-picker">
+          <Label text="Search and select full name 搜索并选择姓名">
+            <input
+              value={memberSearch}
+              onChange={(e) => {
+                setMemberSearch(e.target.value);
+                setSelectedMember(null);
+              }}
+              placeholder="Type your name or company..."
+              disabled={membersLoading}
+              required={!selectedMember}
+            />
           </Label>
-          <Button disabled={busy}>
-            {busy ? <Loader2 className="spin" /> : <ShieldCheck />}
-            Verify and enter 验证并登入
-          </Button>
-          <button className="ghost-button" type="button" onClick={() => setPhase("search")}>
-            Search again 重新查找
+          <div className="member-option-list">
+            {membersLoading && <p className="muted">Loading members 载入会员名单...</p>}
+            {!membersLoading && filteredMemberOptions.length === 0 && <p className="muted">No member found. 找不到会员。</p>}
+            {!membersLoading && filteredMemberOptions.slice(0, 12).map((member) => (
+              <button
+                className={selectedMember?.id === member.id ? "member-option selected" : "member-option"}
+                key={member.id}
+                type="button"
+                onClick={() => {
+                  setSelectedMember(member);
+                  setMemberSearch(member.full_name);
+                  setMessage("");
+                }}
+              >
+                <strong>{member.full_name}</strong>
+                {member.company && <span>{member.company}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Label text="Registered email 注册电邮">
+          <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+        </Label>
+        <Button disabled={busy || membersLoading || !selectedMember || !selectedWeek}>
+          {busy ? <Loader2 className="spin" /> : <ShieldCheck />}
+          Check and start 开始填写
+        </Button>
+        {isLocalPreview() && (
+          <button className="ghost-button" type="button" onClick={onDemo}>
+            <Eye /> Preview as member 会员预览
           </button>
-        </form>
-      )}
+        )}
+      </form>
       {message && <p className="notice">{message}</p>}
     </section>
   );
 }
 
-function WeeklyDesk({ member, demo = false }) {
+function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = "", onExit }) {
   const [weeks, setWeeks] = useState([]);
   const [submissions, setSubmissions] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState(null);
+  const [selectedWeek, setSelectedWeek] = useState(initialWeek);
   const [loading, setLoading] = useState(true);
+  const memberId = member.id || member.member_id;
 
   async function load() {
     setLoading(true);
@@ -685,9 +748,12 @@ function WeeklyDesk({ member, demo = false }) {
       return;
     }
     const available = currentSubmissionWeeks();
+    const historyRequest = verifiedEmail
+      ? supabase.rpc("member_submission_history", { p_member_id: memberId, p_email: verifiedEmail })
+      : supabase.from("submission_details").select("*").eq("member_id", memberId).order("submitted_at", { ascending: false });
     const [{ data: dbWeeks }, { data: subs }] = await Promise.all([
       supabase.from("weeks").select("*").in("id", available.map((week) => week.id)).order("id", { ascending: false }),
-      supabase.from("submission_details").select("*").eq("member_id", member.id).order("submitted_at", { ascending: false }),
+      historyRequest,
     ]);
     setWeeks(dbWeeks?.length ? dbWeeks : available);
     setSubmissions(subs || []);
@@ -696,7 +762,7 @@ function WeeklyDesk({ member, demo = false }) {
 
   useEffect(() => {
     load();
-  }, [member.id, demo]);
+  }, [memberId, demo]);
 
   if (loading) return <LoadingScreen />;
   return (
@@ -711,6 +777,10 @@ function WeeklyDesk({ member, demo = false }) {
           if (demo) {
             sessionStorage.removeItem("tianyi-demo-member");
             window.location.reload();
+            return;
+          }
+          if (onExit) {
+            onExit();
             return;
           }
           supabase.auth.signOut();
@@ -745,13 +815,13 @@ function WeeklyDesk({ member, demo = false }) {
           <SubmissionHistory submissions={submissions} />
         </>
       ) : (
-        <WeeklyForm member={member} week={selectedWeek} onCancel={() => setSelectedWeek(null)} onSubmitted={load} demo={demo} />
+        <WeeklyForm member={member} week={selectedWeek} verifiedEmail={verifiedEmail} onCancel={() => onExit ? onExit() : setSelectedWeek(null)} onSubmitted={load} demo={demo} />
       )}
     </section>
   );
 }
 
-function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
+function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, demo = false }) {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     one_to_one: 0,
@@ -771,7 +841,7 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
     event.preventDefault();
     setError("");
     if (demo) {
-      setError("Preview mode only. Real submission requires OTP login. 预览模式不会提交。");
+      setError("Preview mode only. Real submission requires member/email check. 预览模式不会提交。");
       return;
     }
     const selectedFiles = Object.values(files).flatMap((list) => Array.from(list || []));
@@ -781,24 +851,23 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
       return;
     }
     setBusy(true);
+    const memberId = member.id || member.member_id;
+    const emailForCheck = verifiedEmail || member.email;
     const payload = {
-      member_id: member.id,
-      week_id: week.id,
-      one_to_one: Number(form.one_to_one) || 0,
-      training: Number(form.training) || 0,
-      referrals: Number(form.referrals) || 0,
-      tyfcb: Number(form.tyfcb) || 0,
-      visitors: Number(form.visitors) || 0,
-      visitor_joined: 0,
+      p_member_id: memberId,
+      p_email: emailForCheck,
+      p_week_id: week.id,
+      p_one_to_one: Number(form.one_to_one) || 0,
+      p_training: Number(form.training) || 0,
+      p_referrals: Number(form.referrals) || 0,
+      p_tyfcb: Number(form.tyfcb) || 0,
+      p_visitors: Number(form.visitors) || 0,
     };
-    const { data: submission, error: insertError } = await supabase
-      .from("submissions")
-      .insert(payload)
-      .select()
-      .single();
+    const { data, error: insertError } = await supabase.rpc("submit_weekly_update", payload);
+    const submission = data?.[0];
 
-    if (insertError) {
-      setError(insertError.code === "23505" ? "This week was already submitted. 本周已经提交。" : insertError.message);
+    if (insertError || !submission) {
+      setError(insertError?.message?.includes("already submitted") ? "This week was already submitted. 本周已经提交。" : insertError?.message || "Unable to submit. 无法提交。");
       setBusy(false);
       return;
     }
@@ -807,7 +876,7 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
     for (const kind of evidenceKinds) {
       for (const file of Array.from(files[kind] || [])) {
         const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
-        const path = `${member.id}/${submission.id}/${kind}-${Date.now()}-${safeName}`;
+        const path = `${memberId}/${submission.id}/${kind}-${Date.now()}-${safeName}`;
         const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(path, file);
         if (uploadError) {
           setError(uploadError.message);
@@ -817,7 +886,21 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
         evidenceRows.push({ submission_id: submission.id, kind, file_path: path, file_name: file.name });
       }
     }
-    if (evidenceRows.length) await supabase.from("evidence").insert(evidenceRows);
+    for (const row of evidenceRows) {
+      const { error: evidenceError } = await supabase.rpc("add_submission_evidence", {
+        p_submission_id: row.submission_id,
+        p_member_id: memberId,
+        p_email: emailForCheck,
+        p_kind: row.kind,
+        p_file_path: row.file_path,
+        p_file_name: row.file_name,
+      });
+      if (evidenceError) {
+        setError(evidenceError.message);
+        setBusy(false);
+        return;
+      }
+    }
 
     await fetch("/api/submission-email", {
       method: "POST",
