@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -42,6 +43,7 @@ import {
   FIELD_META,
   WEEKS,
   ADMIN_EMAILS,
+  activeSubmission,
   calcScore,
   canSubmitWeek,
   currentSubmissionWeeks,
@@ -64,6 +66,14 @@ import "./styles.css";
 const isLocalPreview = () => ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 const ADMIN_TOKEN_KEY = "tianyi-admin-token";
+
+function todayLabel() {
+  return new Date().toLocaleDateString("en-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 function App() {
   return (
@@ -482,7 +492,7 @@ function WeeklyUpdatePage() {
   const [session, setSession] = useState(null);
   const [member, setMember] = useState(null);
   const [checkedAccess, setCheckedAccess] = useState(null);
-  const [demoMember, setDemoMember] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-member") === "1");
+  const [demoMember] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-member") === "1");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -526,10 +536,7 @@ function WeeklyUpdatePage() {
           onExit={() => setCheckedAccess(null)}
         />
       ) : !session || !member ? (
-        <MemberCheckLogin onVerified={setCheckedAccess} onDemo={() => {
-          sessionStorage.setItem("tianyi-demo-member", "1");
-          setDemoMember(true);
-        }} />
+        <MemberCheckLogin onVerified={setCheckedAccess} />
       ) : (
         <WeeklyDesk member={member} />
       )}
@@ -573,13 +580,13 @@ function HeroHeader({
       </div>
       <div className="hero-copy">
         <p>{sub}</p>
-        <span>01 Jun 2026 - 31 Jul 2026</span>
+        <span>Today {todayLabel()}</span>
       </div>
     </header>
   );
 }
 
-function MemberCheckLogin({ onVerified, onDemo }) {
+function MemberCheckLogin({ onVerified }) {
   const [form, setForm] = useState({ email: "" });
   const [weeks, setWeeks] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
@@ -725,11 +732,6 @@ function MemberCheckLogin({ onVerified, onDemo }) {
           {busy ? <Loader2 className="spin" /> : <ShieldCheck />}
           Check and start 开始填写
         </Button>
-        {isLocalPreview() && (
-          <button className="ghost-button" type="button" onClick={onDemo}>
-            <Eye /> Preview as member 会员预览
-          </button>
-        )}
       </form>
       {message && <p className="notice">{message}</p>}
     </section>
@@ -739,7 +741,7 @@ function MemberCheckLogin({ onVerified, onDemo }) {
 function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = "", onExit }) {
   const [weeks, setWeeks] = useState([]);
   const [submissions, setSubmissions] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState(initialWeek);
+  const [selectedWeek, setSelectedWeek] = useState(null);
   const [loading, setLoading] = useState(true);
   const memberId = member.id || member.member_id;
 
@@ -793,7 +795,15 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
         </button>
       </div>
 
-      {!selectedWeek ? (
+      {initialWeek && !selectedWeek ? (
+        <WeeklyPreSubmitScreen
+          week={initialWeek}
+          submissions={submissions}
+          onStart={() => setSelectedWeek(initialWeek)}
+          onBack={onExit}
+          demo={demo}
+        />
+      ) : !selectedWeek ? (
         <>
           <div className="section-heading">
             <ClipboardCheck />
@@ -819,9 +829,52 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
           <SubmissionHistory submissions={submissions} />
         </>
       ) : (
-        <WeeklyForm member={member} week={selectedWeek} verifiedEmail={verifiedEmail} onCancel={() => onExit ? onExit() : setSelectedWeek(null)} onSubmitted={load} demo={demo} />
+        <WeeklyForm member={member} week={selectedWeek} verifiedEmail={verifiedEmail} onCancel={() => setSelectedWeek(null)} onSubmitted={load} demo={demo} />
       )}
     </section>
+  );
+}
+
+function WeeklyPreSubmitScreen({ week, submissions, onStart, onBack, demo = false }) {
+  const existingSubmission = activeSubmission(submissions).find((item) => Number(item.week_id) === Number(week.id));
+
+  return (
+    <>
+      <section className="panel pre-submit-panel">
+        <div className="section-heading">
+          {existingSubmission && !demo ? <XCircle /> : <CheckCircle2 />}
+          <div>
+            <h2>Review before submit 提交前确认</h2>
+            <p>{week.label}</p>
+          </div>
+        </div>
+
+        {existingSubmission && !demo ? (
+          <div className="submission-lock">
+            <strong>This week has already been submitted 本周已提交</strong>
+            <span>Members cannot enter the form again unless admin archives the previous submission.</span>
+            <Link to={`/game/submission/${existingSubmission.id}`} className="primary-link">
+              <Eye />
+              View submission 查看提交
+            </Link>
+          </div>
+        ) : (
+          <div className="submission-ready">
+            <strong>No active submission found 可以开始填写</strong>
+            <span>Please review your past submissions below before starting this week.</span>
+            <button type="button" className="primary-button" onClick={onStart}>
+              <ClipboardCheck />
+              Start weekly update 开始填写
+            </button>
+          </div>
+        )}
+
+        <button type="button" className="ghost-button" onClick={onBack}>
+          Back to member check 返回会员验证
+        </button>
+      </section>
+      <SubmissionHistory submissions={submissions} />
+    </>
   );
 }
 
@@ -994,7 +1047,19 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
 }
 
 function ActivitySection({ title, sub, kind, showProof, files, setFiles, children }) {
-  const selectedCount = Array.from(files[kind] || []).length;
+  const selectedFiles = Array.from(files[kind] || []);
+  const selectedCount = selectedFiles.length;
+  const [previewFile, setPreviewFile] = useState(null);
+  const inputId = `${kind}-proof-input`;
+  const clearFiles = () => setFiles({ ...files, [kind]: null });
+  const addFiles = (fileList) => {
+    const nextFiles = [...selectedFiles, ...Array.from(fileList || [])];
+    setFiles({ ...files, [kind]: nextFiles.length ? nextFiles : null });
+  };
+  const removeFile = (indexToRemove) => {
+    const nextFiles = selectedFiles.filter((_file, index) => index !== indexToRemove);
+    setFiles({ ...files, [kind]: nextFiles.length ? nextFiles : null });
+  };
   return (
     <section className="activity-section">
       <div>
@@ -1003,14 +1068,68 @@ function ActivitySection({ title, sub, kind, showProof, files, setFiles, childre
       </div>
       {children}
       {showProof && (
-        <div className="inline-proof">
-          <Label text={`${FIELD_META[kind].label} proof image 证明照片`}>
-            <input type="file" accept="image/*" multiple onChange={(e) => setFiles({ ...files, [kind]: e.target.files })} />
-          </Label>
-          <small>{selectedCount ? `${selectedCount} image(s) selected` : "Required before submit 提交前必须上传"}</small>
+        <div className={selectedCount ? "inline-proof ready" : "inline-proof"}>
+          <div>
+            <span className="proof-label">{FIELD_META[kind].label} proof image 证明照片</span>
+            <input
+              id={inputId}
+              className="visually-hidden-file"
+              key={`${kind}-${selectedCount}`}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => addFiles(e.target.files)}
+            />
+            <label className="upload-file-button" htmlFor={inputId}>
+              <Upload /> {selectedCount ? "Add more images 继续上传" : "Upload file 上传照片"}
+            </label>
+          </div>
+          <small>{selectedCount ? `${selectedCount} image(s) selected, ready to submit 已上传，可提交` : "Required before submit 提交前必须上传"}</small>
+          {selectedCount > 0 && (
+            <div className="proof-file-list">
+              {selectedFiles.map((file, index) => (
+                <div className="proof-file-row" key={`${file.name}-${file.size}-${index}`}>
+                  <FileImage />
+                  <span>{file.name}</span>
+                  <button className="proof-view-button" type="button" onClick={() => setPreviewFile(file)}>View</button>
+                  <button className="proof-cancel-button" type="button" onClick={() => removeFile(index)}>Cancel</button>
+                </div>
+              ))}
+              <button className="proof-clear-button" type="button" onClick={clearFiles}>
+                <X /> Remove all
+              </button>
+            </div>
+          )}
         </div>
       )}
+      {previewFile && <ProofPreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
     </section>
+  );
+}
+
+function ProofPreviewModal({ file, onClose }) {
+  const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    const nextUrl = URL.createObjectURL(file);
+    setUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
+
+  return (
+    <div className="detail-backdrop" role="dialog" aria-modal="true">
+      <section className="detail-panel proof-preview-modal">
+        <button className="icon-button detail-close" type="button" onClick={onClose} aria-label="Close proof preview">
+          <X />
+        </button>
+        <p>Proof preview 证明预览</p>
+        <h2>{file.name}</h2>
+        {url && <img src={url} alt={file.name} />}
+        <button className="primary-button" type="button" onClick={onClose}>
+          Confirm 确认
+        </button>
+      </section>
+    </div>
   );
 }
 
@@ -1119,8 +1238,9 @@ function SubmissionReceipt() {
 
 function AdminPortal() {
   const [adminSession, setAdminSession] = useState(null);
-  const [demoAdmin, setDemoAdmin] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-admin") === "1");
+  const [demoAdmin] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-admin") === "1");
   const [checking, setChecking] = useState(true);
+  const adminName = demoAdmin ? "Demo admin" : adminSession?.email;
 
   async function checkAdmin() {
     const token = localStorage.getItem(ADMIN_TOKEN_KEY);
@@ -1156,27 +1276,34 @@ function AdminPortal() {
           </div>
         </Link>
         {(adminSession || demoAdmin) && (
-          <button className="ghost-button" onClick={async () => {
-            if (demoAdmin) {
-              sessionStorage.removeItem("tianyi-demo-admin");
-              window.location.reload();
-              return;
-            }
-            await supabase.rpc("admin_logout", { p_token: adminSession.token }).catch(() => {});
-            localStorage.removeItem(ADMIN_TOKEN_KEY);
-            setAdminSession(null);
-          }}>
-            <LogOut /> Logout 登出
-          </button>
+          <div className="admin-session-box">
+            <div>
+              <span>Signed in as</span>
+              <strong>{adminName}</strong>
+            </div>
+            <button className="ghost-button" onClick={async () => {
+              if (demoAdmin) {
+                sessionStorage.removeItem("tianyi-demo-admin");
+                window.location.reload();
+                return;
+              }
+              try {
+                await supabase.rpc("admin_logout", { p_token: adminSession.token });
+              } catch {
+                // Local logout should still clear stale sessions if the network request fails.
+              }
+              localStorage.removeItem(ADMIN_TOKEN_KEY);
+              setAdminSession(null);
+            }}>
+              <LogOut /> Logout 登出
+            </button>
+          </div>
         )}
       </header>
       {demoAdmin ? (
         <AdminWorkspace demo />
       ) : !adminSession ? (
-        <AdminLogin onSignedIn={setAdminSession} onDemo={() => {
-          sessionStorage.setItem("tianyi-demo-admin", "1");
-          setDemoAdmin(true);
-        }} />
+        <AdminLogin onSignedIn={setAdminSession} />
       ) : (
         <AdminWorkspace adminToken={adminSession.token} />
       )}
@@ -1184,7 +1311,7 @@ function AdminPortal() {
   );
 }
 
-function AdminLogin({ onSignedIn, onDemo }) {
+function AdminLogin({ onSignedIn }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -1209,29 +1336,34 @@ function AdminLogin({ onSignedIn, onDemo }) {
   }
 
   return (
-    <section className="panel login-panel">
-      <div className="section-heading">
-        <ShieldCheck />
+    <section className="admin-login-wrap">
+      <div className="admin-login-visual">
+        <div className="brand-mark">天</div>
         <div>
-          <h2>管理员登入 Admin sign in</h2>
-          <p>Use the TianYi admin email and password.</p>
+          <p>TIAN YI OneSystem</p>
+          <h2>管理后台</h2>
+          <span>Admin Portal</span>
         </div>
       </div>
-      <form onSubmit={signIn} className="stack">
-        <Label text="Admin email 管理员电邮">
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </Label>
-        <Label text="Password 密码">
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </Label>
-        <Button disabled={busy}>{busy ? <Loader2 className="spin" /> : <ShieldCheck />} 登入 Sign in</Button>
-        {isLocalPreview() && (
-          <button className="ghost-button" type="button" onClick={onDemo}>
-            <Eye /> Preview admin 管理预览
-          </button>
-        )}
-      </form>
-      {message && <p className="notice">{message}</p>}
+      <div className="panel login-panel admin-login-card">
+        <div className="section-heading">
+          <ShieldCheck />
+          <div>
+            <h2>管理员登入 Admin sign in</h2>
+            <p>Use the TianYi admin email and password.</p>
+          </div>
+        </div>
+        <form onSubmit={signIn} className="stack">
+          <Label text="Admin email 管理员电邮">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </Label>
+          <Label text="Password 密码">
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </Label>
+          <Button disabled={busy}>{busy ? <Loader2 className="spin" /> : <ShieldCheck />} 登入 Sign in</Button>
+        </form>
+        {message && <p className="notice">{message}</p>}
+      </div>
     </section>
   );
 }
@@ -1381,18 +1513,25 @@ function Metric({ label, value }) {
 
 function MemberManager({ onChanged, demo = false, adminToken = "" }) {
   const [members, setMembers] = useState([]);
+  const [memberScores, setMemberScores] = useState({});
   const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "", phone: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [editingMember, setEditingMember] = useState(null);
   const [memberView, setMemberView] = useState("list");
 
   async function load() {
     if (demo) {
       setMembers(DEMO_MEMBERS);
+      setMemberScores(buildMemberScores(DEMO_SUBMISSIONS));
       return;
     }
-    const { data } = await supabase.rpc("admin_members", { p_token: adminToken });
-    setMembers(data || []);
+    const [{ data: memberData }, { data: submissionData }] = await Promise.all([
+      supabase.rpc("admin_members", { p_token: adminToken }),
+      supabase.rpc("admin_submissions", { p_token: adminToken }),
+    ]);
+    setMembers(memberData || []);
+    setMemberScores(buildMemberScores(submissionData || []));
   }
 
   useEffect(() => { load(); }, [adminToken]);
@@ -1448,12 +1587,30 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
     onChanged();
   }
 
-  async function deactivateMember(memberId) {
+  async function updateMember(event) {
+    event.preventDefault();
+    if (!editingMember) return;
+    const nextMember = {
+      ...editingMember,
+      email: normalizeEmail(editingMember.email),
+      phone: editingMember.phone || "",
+      company: editingMember.company || "",
+    };
     if (demo) {
-      setMembers((current) => current.filter((member) => member.id !== memberId));
+      setMembers((current) => current.map((member) => member.id === nextMember.id ? nextMember : member).sort((a, b) => a.full_name.localeCompare(b.full_name)));
+      setEditingMember(null);
+      onChanged();
       return;
     }
-    await supabase.rpc("admin_deactivate_member", { p_token: adminToken, p_member_id: memberId });
+    await supabase.rpc("admin_update_member", {
+      p_token: adminToken,
+      p_member_id: nextMember.id,
+      p_full_name: nextMember.full_name,
+      p_email: nextMember.email,
+      p_phone: nextMember.phone,
+      p_company: nextMember.company,
+    });
+    setEditingMember(null);
     await load();
     onChanged();
   }
@@ -1494,7 +1651,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
           <>
             <div className="table-wrap member-table-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Buddy pair</th><th>Buddy member</th><th>Action</th></tr></thead>
+                <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Buddy pair</th><th>Buddy member</th><th>Edit</th></tr></thead>
                 <tbody>
                   {filteredMembers.map((member) => (
                     <tr key={member.id}>
@@ -1510,7 +1667,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
                         </select>
                       </td>
                       <td>
-                        <button className="table-danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate</button>
+                        <button className="table-action-button" type="button" onClick={() => setEditingMember({ ...member })}>Edit</button>
                       </td>
                     </tr>
                   ))}
@@ -1519,21 +1676,18 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
             </div>
             <div className="member-card-list">
               {filteredMembers.map((member) => (
-                <MemberAdminCard key={member.id} member={member} members={members} updateBuddy={updateBuddy} deactivateMember={deactivateMember} />
+                <MemberAdminCard key={member.id} member={member} members={members} updateBuddy={updateBuddy} onEdit={() => setEditingMember({ ...member })} />
               ))}
             </div>
           </>
         ) : (
           <div className="buddy-group-list">
             {groupedPairs.map((group) => (
-              <article className="buddy-group-card" key={group.id}>
-                <h3>{group.teamNo ? `Buddy Pair ${group.teamNo}` : "Unpaired"}</h3>
-                <div className="member-card-list">
-                  {group.members.map((member) => (
-                    <MemberAdminCard key={member.id} member={member} members={members} updateBuddy={updateBuddy} deactivateMember={deactivateMember} compact />
-                  ))}
-                </div>
-              </article>
+              <BuddyGroupCard
+                key={group.id}
+                group={group}
+                memberScores={memberScores}
+              />
             ))}
           </div>
         )}
@@ -1566,11 +1720,96 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
           </form>
         </div>
       )}
+      {editingMember && (
+        <div className="detail-backdrop" role="dialog" aria-modal="true">
+          <form className="detail-panel modal-form" onSubmit={updateMember}>
+            <button className="icon-button detail-close" type="button" onClick={() => setEditingMember(null)} aria-label="Close edit member">
+              <X />
+            </button>
+            <p>Edit member 编辑会员</p>
+            <h2>{editingMember.full_name}</h2>
+            <Label text="Full name 姓名">
+              <input value={editingMember.full_name} onChange={(e) => setEditingMember({ ...editingMember, full_name: e.target.value })} required />
+            </Label>
+            <Label text="Email 电邮">
+              <input type="email" value={editingMember.email} onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })} required />
+            </Label>
+            <Label text="Phone 电话">
+              <input type="tel" value={editingMember.phone || ""} onChange={(e) => setEditingMember({ ...editingMember, phone: e.target.value })} />
+            </Label>
+            <Label text="Company 公司">
+              <input value={editingMember.company || ""} onChange={(e) => setEditingMember({ ...editingMember, company: e.target.value })} />
+            </Label>
+            <div className="button-row">
+              <button className="ghost-button" type="button" onClick={() => setEditingMember(null)}>Cancel 取消</button>
+              <Button>Save 保存</Button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
 
-function MemberAdminCard({ member, members, updateBuddy, deactivateMember, compact = false }) {
+function buildMemberScores(submissions) {
+  return submissions.reduce((scores, submission) => {
+    if (submission.status === "archived") return scores;
+    const current = scores[submission.member_id] || { score: 0, submissions: 0, tyfcb: 0 };
+    const submittedAt = submission.submitted_at ? new Date(submission.submitted_at).getTime() : 0;
+    const isLatest = submittedAt >= Number(current.latestSubmittedAt || 0);
+    scores[submission.member_id] = {
+      score: current.score + Number(submission.score || 0),
+      submissions: current.submissions + 1,
+      tyfcb: current.tyfcb + Number(submission.tyfcb || 0),
+      latestStatus: isLatest ? (submission.status || "active") : current.latestStatus,
+      latestSubmittedAt: Math.max(Number(current.latestSubmittedAt || 0), submittedAt),
+    };
+    return scores;
+  }, {});
+}
+
+function BuddyGroupCard({ group, memberScores }) {
+  const teamScore = group.members.reduce((total, member) => total + Number(memberScores[member.id]?.score || 0), 0);
+  const teamSubmissions = group.members.reduce((total, member) => total + Number(memberScores[member.id]?.submissions || 0), 0);
+
+  return (
+    <article className="buddy-group-card">
+      <div className="buddy-group-header">
+        <div>
+          <h3>{group.teamNo ? `Buddy Pair ${group.teamNo}` : "Unpaired"}</h3>
+          <span>{group.members.length} member(s) · {teamSubmissions} submission(s)</span>
+        </div>
+        <strong>{teamScore} pts</strong>
+      </div>
+      <div className="buddy-member-list">
+        {group.members.map((member) => (
+          <BuddyMiniRow key={member.id} member={member} scoreSummary={memberScores[member.id]} />
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function BuddyMiniRow({ member, scoreSummary }) {
+  const statusText = memberGameStatus(scoreSummary);
+  return (
+    <div className="buddy-mini-row">
+      <div>
+        <strong>{member.full_name}</strong>
+        <span>{statusText}</span>
+      </div>
+      <b>{scoreSummary?.score || 0} pts</b>
+    </div>
+  );
+}
+
+function memberGameStatus(scoreSummary) {
+  if (!scoreSummary?.submissions) return "No submission 未提交";
+  if (scoreSummary.latestStatus === "active") return "Submitted 已提交";
+  return `${String(scoreSummary.latestStatus || "Submitted").replace(/^./, (char) => char.toUpperCase())} 已提交`;
+}
+
+function MemberAdminCard({ member, members, updateBuddy, compact = false, scoreSummary = null, onEdit }) {
   return (
     <article className={compact ? "member-list-card compact-member-card" : "member-list-card"}>
       <div>
@@ -1582,6 +1821,8 @@ function MemberAdminCard({ member, members, updateBuddy, deactivateMember, compa
         <div><dt>Company 公司</dt><dd>{member.company || "-"}</dd></div>
         <div><dt>Buddy pair 伙伴组</dt><dd>{member.buddy_teams?.team_no || "-"}</dd></div>
         <div><dt>Buddy partner 伙伴</dt><dd>{member.buddy?.full_name || "None"}</dd></div>
+        {scoreSummary && <div><dt>Game input score 分数</dt><dd>{scoreSummary.score || 0} pts</dd></div>}
+        {scoreSummary && <div><dt>Submissions 提交</dt><dd>{scoreSummary.submissions || 0}</dd></div>}
       </dl>
       <Label text="Link buddy member 绑定伙伴会员">
         <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
@@ -1589,7 +1830,7 @@ function MemberAdminCard({ member, members, updateBuddy, deactivateMember, compa
           {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
         </select>
       </Label>
-      <button className="danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate 停用</button>
+      {onEdit && <button className="ghost-button" type="button" onClick={onEdit}>Edit 编辑</button>}
     </article>
   );
 }
@@ -1615,7 +1856,7 @@ function SubmissionReview({ demo = false, adminToken = "" }) {
 
 function VerificationQueue({ kind, demo = false, adminToken = "" }) {
   const [items, setItems] = useState([]);
-  const [rejecting, setRejecting] = useState(null);
+  const [reviewing, setReviewing] = useState(null);
   const statusField = `${kind}_status`;
 
   async function load() {
@@ -1644,16 +1885,15 @@ function VerificationQueue({ kind, demo = false, adminToken = "" }) {
     await load();
   }
 
-  async function rejectWithReason(reason) {
-    if (!rejecting) return;
+  async function rejectWithReason(item, reason) {
+    if (!item) return;
     if (demo) {
-      setItems((current) => current.filter((item) => item.id !== rejecting.id));
-      setRejecting(null);
+      setItems((current) => current.filter((row) => row.id !== item.id));
       return;
     }
     await supabase.rpc("admin_reject_submission", {
       p_token: adminToken,
-      p_submission_id: rejecting.id,
+      p_submission_id: item.id,
       p_field: statusField,
       p_reason: reason,
     });
@@ -1661,15 +1901,14 @@ function VerificationQueue({ kind, demo = false, adminToken = "" }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: rejecting.email,
-        name: rejecting.full_name,
-        week: rejecting.week_label,
+        email: item.email,
+        name: item.full_name,
+        week: item.week_label,
         kind: FIELD_META[kind]?.label || kind,
         reason,
         origin: window.location.origin,
       }),
     }).catch(() => {});
-    setRejecting(null);
     await load();
   }
 
@@ -1689,52 +1928,126 @@ function VerificationQueue({ kind, demo = false, adminToken = "" }) {
         <div className="section-heading"><Eye /><div><h2>{FIELD_META[kind]?.label || kind} verification 审核</h2><p>Approve or reject proof photos.</p></div></div>
         <div className="review-list">
           {items.map((item) => (
-            <ReviewCard key={item.id} item={item} kind={kind} statusField={statusField} onStatus={setStatus} onReject={() => setRejecting(item)} onVisitorJoined={updateVisitorJoined} />
+            <ReviewCard key={item.id} item={item} kind={kind} statusField={statusField} onReview={() => setReviewing(item)} />
           ))}
         </div>
       </section>
-      {rejecting && <RejectModal item={rejecting} kind={kind} onCancel={() => setRejecting(null)} onConfirm={rejectWithReason} />}
+      {reviewing && (
+        <ReviewModal
+          item={reviewing}
+          kind={kind}
+          statusField={statusField}
+          onClose={() => setReviewing(null)}
+          onApprove={setStatus}
+          onReject={rejectWithReason}
+          onVisitorJoined={updateVisitorJoined}
+        />
+      )}
     </div>
   );
 }
 
-function RejectModal({ item, kind, onCancel, onConfirm }) {
+function ReviewModal({ item, kind, statusField, onClose, onApprove, onReject, onVisitorJoined }) {
+  const evidence = (item.evidence || []).filter((row) => row.kind === kind);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [confirmAction, setConfirmAction] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [visitorJoined, setVisitorJoined] = useState(item.visitor_joined || 0);
 
-  function submit(event) {
-    event.preventDefault();
+  function requestReject() {
     if (reason.trim().length < 3) {
       setError("Please enter a clear rejection reason. 请输入拒绝原因。");
       return;
     }
-    onConfirm(reason.trim());
+    setError("");
+    setConfirmAction("reject");
   }
 
-  return (
+  async function confirmDecision() {
+    setBusy(true);
+    if (confirmAction === "approve") {
+      await onApprove(item.id, "approved");
+    }
+    if (confirmAction === "reject") {
+      await onReject(item, reason.trim());
+    }
+    setBusy(false);
+    onClose();
+  }
+
+  return createPortal(
     <div className="detail-backdrop" role="dialog" aria-modal="true">
-      <form className="detail-panel modal-form" onSubmit={submit}>
-        <button className="icon-button detail-close" type="button" onClick={onCancel} aria-label="Close reject reason">
+      <section className="detail-panel review-modal">
+        <button className="icon-button detail-close" type="button" onClick={onClose} aria-label="Close review">
           <X />
         </button>
-        <p>Reject confirmation 拒绝确认</p>
-        <h2>{FIELD_META[kind]?.label || kind} proof for {item.full_name}</h2>
+        <p>Review submission 审核提交</p>
+        <h2>{item.full_name}</h2>
         <span>{item.week_label}</span>
-        <Label text="Reason to member 给会员的原因">
-          <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: Proof photo is unclear or does not match this week." required />
-        </Label>
-        <p className="notice">This reason will be sent to the member email. 此原因会发送到会员电邮。</p>
-        {error && <p className="error">{error}</p>}
-        <div className="button-row">
-          <button className="ghost-button" type="button" onClick={onCancel}>Cancel 取消</button>
-          <button className="danger-button" type="submit"><XCircle /> Confirm reject 确认拒绝</button>
+        <dl>
+          <div><dt>Buddy 伙伴组</dt><dd>{item.team_no || "-"}</dd></div>
+          <div><dt>Status 状态</dt><dd>{item[statusField]}</dd></div>
+          <div><dt>{FIELD_META[kind]?.label || kind}</dt><dd>{verificationValue(item, kind)}</dd></div>
+        </dl>
+        {kind === "visitor" && (
+          <Label text="访客加入 Visitor joined">
+            <input
+              type="number"
+              min="0"
+              max="20"
+              value={visitorJoined}
+              onChange={(event) => {
+                setVisitorJoined(event.target.value);
+                onVisitorJoined(item.id, event.target.value);
+              }}
+            />
+          </Label>
+        )}
+        <div className="proof-links">
+          {evidence.map((file) => <EvidenceLink file={file} key={file.id} />)}
+          {evidence.length === 0 && <span>Optional proof not uploaded</span>}
         </div>
-      </form>
-    </div>
+        <Label text="Reject reason 给会员的拒绝原因">
+          <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: Proof photo is unclear or does not match this week." />
+        </Label>
+        {error && <p className="error">{error}</p>}
+        {confirmAction && (
+          <div className={confirmAction === "approve" ? "confirm-box approve" : "confirm-box reject"}>
+            <strong>{confirmAction === "approve" ? "Confirm approve? 确认批准？" : "Confirm reject? 确认拒绝？"}</strong>
+            <span>{confirmAction === "approve" ? "This will approve this game input and affect the score." : "This will reject the input and email the reason to the member."}</span>
+          </div>
+        )}
+        <div className="button-row">
+          {confirmAction ? (
+            <>
+              <button className="ghost-button" type="button" onClick={() => setConfirmAction("")}>Back 返回</button>
+              <button className={confirmAction === "approve" ? "primary-button" : "danger-button"} type="button" disabled={busy} onClick={confirmDecision}>
+                {busy ? <Loader2 className="spin" /> : confirmAction === "approve" ? <CheckCircle2 /> : <XCircle />}
+                {confirmAction === "approve" ? "Confirm approve 确认批准" : "Confirm reject 确认拒绝"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="danger-button" type="button" onClick={requestReject}><XCircle /> Reject 拒绝</button>
+              <button className="primary-button" type="button" onClick={() => setConfirmAction("approve")}><CheckCircle2 /> Approve 批准</button>
+            </>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body
   );
 }
 
-function ReviewCard({ item, kind, statusField, onStatus, onReject, onVisitorJoined }) {
+function verificationValue(item, kind) {
+  if (kind === "tyfcb") return money(item.tyfcb);
+  if (kind === "referral") return item.referrals || 0;
+  if (kind === "visitor") return item.visitors || 0;
+  return item[kind] || 0;
+}
+
+function ReviewCard({ item, kind, statusField, onReview }) {
   const evidence = (item.evidence || []).filter((row) => row.kind === kind);
   return (
     <article className="review-card">
@@ -1747,14 +2060,8 @@ function ReviewCard({ item, kind, statusField, onStatus, onReject, onVisitorJoin
         {evidence.map((file) => <EvidenceLink file={file} key={file.id} />)}
         {evidence.length === 0 && <span>Optional proof not uploaded</span>}
       </div>
-      {kind === "visitor" && (
-        <Label text="访客加入 Visitor joined">
-          <input type="number" min="0" max="20" value={item.visitor_joined || 0} onChange={(event) => onVisitorJoined(item.id, event.target.value)} />
-        </Label>
-      )}
       <div className="verify-actions">
-        <button onClick={() => onStatus(item.id, "approved")}><CheckCircle2 /> Approve</button>
-        <button onClick={onReject}><XCircle /> Reject</button>
+        <button type="button" onClick={onReview}><Eye /> Review 审核</button>
       </div>
     </article>
   );
@@ -1923,7 +2230,7 @@ function SubmissionTable({ items }) {
               <tr key={item.id} className="clickable-row" onClick={() => setSelected(item)}>
                 <td>{item.full_name}</td>
                 <td>{item.week_label}</td>
-                <td>{item.status || "active"}</td>
+                <td>{submissionReviewStatus(item)}</td>
                 <td>{item.team_no || "-"}</td>
                 <td>{item.one_to_one}</td>
                 <td>{item.training}</td>
@@ -1941,7 +2248,7 @@ function SubmissionTable({ items }) {
           <button className="submission-card" key={item.id} onClick={() => setSelected(item)}>
             <div>
               <strong>{item.full_name}</strong>
-              <span>{item.week_label} · {item.status || "active"}</span>
+              <span>{item.week_label} · {submissionReviewStatus(item)}</span>
             </div>
             <div className="submission-card-score">{item.score} pts</div>
             <dl>
@@ -1960,8 +2267,22 @@ function SubmissionTable({ items }) {
   );
 }
 
+function submissionReviewStatus(item) {
+  if (item.status === "archived") return "Archived";
+  const submittedStatuses = [
+    Number(item.one_to_one || 0) > 0 ? item.one_to_one_status : null,
+    Number(item.training || 0) > 0 ? item.training_status : null,
+    Number(item.referrals || 0) > 0 ? item.referral_status : null,
+    Number(item.tyfcb || 0) > 0 ? item.tyfcb_status : null,
+    Number(item.visitors || 0) > 0 ? item.visitor_status : null,
+  ].filter(Boolean);
+  if (submittedStatuses.some((status) => status === "rejected")) return "Rejected";
+  if (submittedStatuses.length > 0 && submittedStatuses.every((status) => status === "approved")) return "Approved";
+  return "Submitted";
+}
+
 function SubmissionDetail({ item, onClose }) {
-  return (
+  return createPortal(
     <div className="detail-backdrop" role="dialog" aria-modal="true">
       <section className="detail-panel">
         <button className="icon-button detail-close" onClick={onClose} aria-label="Close details">
@@ -1976,6 +2297,7 @@ function SubmissionDetail({ item, onClose }) {
         </div>
         <dl>
           <div><dt>Email 电邮</dt><dd>{item.email || "-"}</dd></div>
+          <div><dt>Status 状态</dt><dd>{submissionReviewStatus(item)}</dd></div>
           <div><dt>Buddy team 伙伴组</dt><dd>{item.team_no || "-"}</dd></div>
           <div><dt>1-2-1</dt><dd>{item.one_to_one}</dd></div>
           <div><dt>Training 培训</dt><dd>{item.training}</dd></div>
@@ -1987,7 +2309,8 @@ function SubmissionDetail({ item, onClose }) {
           <div><dt>Submitted 提交时间</dt><dd>{item.submitted_at ? new Date(item.submitted_at).toLocaleString() : "-"}</dd></div>
         </dl>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
 
