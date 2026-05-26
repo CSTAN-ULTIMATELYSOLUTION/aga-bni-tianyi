@@ -18,6 +18,11 @@ export const FIELD_META = {
   visitor: { label: "Visitor", zh: "访客" },
 };
 
+export const ADMIN_EMAILS = (import.meta.env?.VITE_ADMIN_NOTIFICATION_EMAILS || "")
+  .split(",")
+  .map(normalizeEmail)
+  .filter(Boolean);
+
 export function tierPoints(amount) {
   if (amount >= 30000) return 12;
   if (amount >= 20000) return 9;
@@ -28,7 +33,7 @@ export function tierPoints(amount) {
 }
 
 export function calcScore(form) {
-  const fullAttendance = Boolean(form.attended && Number(form.one_to_one) > 0 && Number(form.training) > 0 && Number(form.referrals) > 0 && Number(form.tyfcb) > 0 && Number(form.visitors) > 0);
+  const fullAttendance = Boolean(form.admin_attended && Number(form.one_to_one) > 0 && Number(form.training) > 0 && Number(form.referrals) > 0 && Number(form.tyfcb) > 0 && Number(form.visitors) > 0);
   return (
     Math.min(Number(form.one_to_one) || 0, 2) +
     (Number(form.training) || 0) * 5 +
@@ -51,13 +56,16 @@ export function currentSubmissionWeeks(today = new Date()) {
 }
 
 export function evidenceKindsForForm(form) {
-  const kinds = [];
-  if (Number(form.one_to_one) > 0) kinds.push("one_to_one");
-  if (Number(form.training) > 0) kinds.push("training");
-  if (Number(form.referrals) > 0) kinds.push("referral");
-  if (Number(form.tyfcb) > 0) kinds.push("tyfcb");
-  if (Number(form.visitors) > 0 || Number(form.visitor_joined) > 0) kinds.push("visitor");
-  return kinds;
+  void form;
+  return [];
+}
+
+export function activeSubmission(submissions) {
+  return submissions.filter((item) => item.status !== "archived");
+}
+
+export function canSubmitWeek(submissions, weekId) {
+  return !activeSubmission(submissions).some((item) => Number(item.week_id) === Number(weekId));
 }
 
 export function money(value) {
@@ -99,7 +107,7 @@ export const DEMO_SUBMISSIONS = [
     tyfcb_status: "pending",
     visitor_status: "approved",
     submitted_at: "2026-06-08T02:30:00.000Z",
-    tianyi_evidence: [
+    evidence: [
       { id: "ev-1", kind: "one_to_one", file_name: "one-to-one-proof.jpg", file_path: "demo/one-to-one-proof.jpg" },
       { id: "ev-2", kind: "referral", file_name: "referral-proof.jpg", file_path: "demo/referral-proof.jpg" },
       { id: "ev-3", kind: "tyfcb", file_name: "tyfcb-proof.jpg", file_path: "demo/tyfcb-proof.jpg" },
@@ -127,7 +135,7 @@ export const DEMO_SUBMISSIONS = [
     tyfcb_status: "pending",
     visitor_status: "pending",
     submitted_at: "2026-06-15T02:30:00.000Z",
-    tianyi_evidence: [
+    evidence: [
       { id: "ev-4", kind: "training", file_name: "training-proof.jpg", file_path: "demo/training-proof.jpg" },
       { id: "ev-5", kind: "visitor", file_name: "visitor-proof.jpg", file_path: "demo/visitor-proof.jpg" },
     ],
@@ -135,7 +143,7 @@ export const DEMO_SUBMISSIONS = [
 ];
 
 export const DEMO_MEMBERS = [
-  { ...DEMO_MEMBER, buddy_member_id: "00000000-0000-4000-8000-000000000002", buddy: { id: "00000000-0000-4000-8000-000000000002", full_name: "Demo Buddy Partner", email: "demo.buddy@agaventures.ai" }, tianyi_buddy_teams: { team_no: 7, name: "Buddy Team 7" } },
+  { ...DEMO_MEMBER, buddy_member_id: "00000000-0000-4000-8000-000000000002", buddy: { id: "00000000-0000-4000-8000-000000000002", full_name: "Demo Buddy Partner", email: "demo.buddy@agaventures.ai" }, buddy_teams: { team_no: 7, name: "Buddy Team 7" } },
   {
     id: "00000000-0000-4000-8000-000000000002",
     full_name: "Demo Buddy Partner",
@@ -144,7 +152,7 @@ export const DEMO_MEMBERS = [
     buddy_member_id: DEMO_MEMBER.id,
     buddy: { id: DEMO_MEMBER.id, full_name: DEMO_MEMBER.full_name, email: DEMO_MEMBER.email },
     buddy_team_id: "00000000-0000-4000-8000-000000000041",
-    tianyi_buddy_teams: { team_no: 7, name: "Buddy Team 7" },
+    buddy_teams: { team_no: 7, name: "Buddy Team 7" },
   },
   {
     id: "00000000-0000-4000-8000-000000000003",
@@ -152,7 +160,7 @@ export const DEMO_MEMBERS = [
     email: "demo.visitor@agaventures.ai",
     company: "Visitor Studio",
     buddy_team_id: "00000000-0000-4000-8000-000000000008",
-    tianyi_buddy_teams: { team_no: 8, name: "Buddy Team 8" },
+    buddy_teams: { team_no: 8, name: "Buddy Team 8" },
   },
 ];
 

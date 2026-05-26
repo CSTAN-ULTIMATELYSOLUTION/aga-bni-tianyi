@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
@@ -33,7 +33,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { supabase } from "./lib/supabase";
+import { EVIDENCE_BUCKET, supabase } from "./lib/supabase";
 import {
   DEMO_BOARD,
   DEMO_MEMBER,
@@ -41,37 +41,85 @@ import {
   DEMO_SUBMISSIONS,
   FIELD_META,
   WEEKS,
+  ADMIN_EMAILS,
   calcScore,
+  canSubmitWeek,
   currentSubmissionWeeks,
-  evidenceKindsForForm,
   money,
   normalizeEmail,
   tierPoints,
 } from "./lib/game";
+import {
+  beliefs,
+  differenceCards,
+  faqs,
+  joinSteps,
+  memberProfiles,
+  moments,
+  serviceCategories,
+  siteStats,
+} from "./lib/website";
 import "./styles.css";
 
 const isLocalPreview = () => ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<PublicPortal />} />
-        <Route path="/submission/:id" element={<SubmissionReceipt />} />
+        <Route path="/" element={<Navigate to="/website" replace />} />
+        <Route path="/website" element={<WebsitePage />} />
+        <Route path="/members" element={<MembersPage />} />
+        <Route path="/catalog" element={<CatalogPage />} />
+        <Route path="/game" element={<GamePage />} />
+        <Route path="/game/weeklyupdate" element={<WeeklyUpdatePage />} />
+        <Route path="/game/submission/:id" element={<SubmissionReceipt />} />
+        <Route path="/submission/:id" element={<NavigateToGameSubmission />} />
         <Route path="/admin" element={<AdminPortal />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/website" replace />} />
       </Routes>
     </BrowserRouter>
   );
 }
 
+function NavigateToGameSubmission() {
+  const { id } = useParams();
+  return <Navigate to={`/game/submission/${id}`} replace />;
+}
+
 function Shell({ children, wide = false }) {
   return (
     <main className={wide ? "shell shell-wide" : "shell"}>
+      <SiteNav />
       {children}
       <FeatureBanner />
       <FooterBanner />
     </main>
+  );
+}
+
+function SiteNav() {
+  const links = [
+    ["/website", "Home"],
+    ["/website#story", "Our Story"],
+    ["/members", "The Crew"],
+    ["/catalog", "What We Do"],
+    ["/website#moments", "Moments"],
+  ];
+  return (
+    <nav className="site-nav" aria-label="Primary">
+      <Link className="nav-brand" to="/website">
+        <span>天一</span>
+        <b>Tian Yi Chapter</b>
+      </Link>
+      {links.map(([to, label]) => (
+        <Link key={to} to={to}>
+          {label}
+        </Link>
+      ))}
+      <Link className="nav-cta" to="/website#join">Pull Up a Chair</Link>
+    </nav>
   );
 }
 
@@ -97,15 +145,336 @@ function FeatureBanner() {
 function FooterBanner() {
   return (
     <footer className="footer-banner">
-      <span>Supported by AGA VENTURES SDN BHD</span>
+      <span>TIAN YI OneSystem</span>
       <a href="https://agaventures.ai" target="_blank" rel="noreferrer">
-        agaventures.ai
+        Supported by AGA Ventures
       </a>
     </footer>
   );
 }
 
-function PublicPortal() {
+function WebsitePage() {
+  return (
+    <Shell wide>
+      <header className="website-hero">
+        <div className="ghost-kanji">天一</div>
+        <div className="hero-kicker">BNI Klang Region</div>
+        <h1>
+          We're not <em>just</em> a business club.
+          <span>我们是天一。</span>
+        </h1>
+        <p>A warm, high-trust chapter where referrals, accountability, and real friendship move in the same rhythm.</p>
+        <div className="hero-actions">
+          <Link className="primary-link" to="/members">
+            <UsersRound /> Meet The Crew
+          </Link>
+          <Link className="secondary-link" to="/catalog">
+            <ClipboardCheck /> Explore Services
+          </Link>
+        </div>
+        <div className="snapshot-strip" aria-label="Tian Yi moments">
+          {["Weekly energy", "Trusted referrals", "Warm introductions"].map((item, index) => (
+            <article className="polaroid" key={item}>
+              <div className={`photo-block photo-${index + 1}`}></div>
+              <span>{item}</span>
+            </article>
+          ))}
+        </div>
+      </header>
+
+      <section className="stat-band" aria-label="Chapter stats">
+        {siteStats.map(([value, label, zh]) => (
+          <div key={label}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+            <small>{zh}</small>
+          </div>
+        ))}
+      </section>
+
+      <section className="section-band">
+        <div className="section-title">
+          <span>Why Tian Yi</span>
+          <h2>What makes us different</h2>
+        </div>
+        <div className="feature-grid">
+          {differenceCards.map(([title, body, zh]) => (
+            <article className="feature-card" key={title}>
+              <strong>{title}</strong>
+              <p>{body}</p>
+              <small>{zh}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="story" className="story-section">
+        <div>
+          <span className="section-label">Our Story</span>
+          <h2>One chapter, one rhythm, one sky.</h2>
+          <p>
+            Tian Yi is built for business owners who believe trust is earned through repeated action. We meet, learn,
+            visit, refer, and follow up with the consistency that turns a room of professionals into a chapter.
+          </p>
+        </div>
+        <div className="belief-list">
+          {beliefs.map(([title, body]) => (
+            <article key={title}>
+              <strong>{title}</strong>
+              <span>{body}</span>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="moments" className="section-band">
+        <div className="section-title">
+          <span>Moments</span>
+          <h2>Business feels warmer when people remember the room.</h2>
+        </div>
+        <div className="moments-grid">
+          <article className="moment-feature">
+            <span>{moments[0].tag}</span>
+            <h3>{moments[0].title}</h3>
+            <p>{moments[0].date}</p>
+            <small>{moments[0].body}</small>
+          </article>
+          {moments.slice(1).map(([title, body]) => (
+            <article className="moment-card" key={title}>
+              <strong>{title}</strong>
+              <span>{body}</span>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="join" className="join-section">
+        <div className="section-title">
+          <span>Pull Up a Chair</span>
+          <h2>Visit first. Feel the room. Then decide.</h2>
+        </div>
+        <div className="join-steps">
+          {joinSteps.map(([title, body], index) => (
+            <article key={title}>
+              <b>{String(index + 1).padStart(2, "0")}</b>
+              <strong>{title}</strong>
+              <span>{body}</span>
+            </article>
+          ))}
+        </div>
+        <div className="faq-list">
+          {faqs.map(([question, answer]) => (
+            <details key={question}>
+              <summary>{question}</summary>
+              <p>{answer}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+    </Shell>
+  );
+}
+
+function MembersPage() {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [selected, setSelected] = useState(memberProfiles[0]);
+  const [tab, setTab] = useState("about");
+  const categories = useMemo(() => ["All", ...new Set(memberProfiles.map((item) => item.category))], []);
+  const filtered = memberProfiles.filter((member) => {
+    const haystack = `${member.name} ${member.role} ${member.company} ${member.category} ${member.services.join(" ")}`.toLowerCase();
+    return (category === "All" || member.category === category) && haystack.includes(query.toLowerCase());
+  });
+
+  return (
+    <Shell wide>
+      <section className="directory-head">
+        <span className="section-label">The Crew</span>
+        <h1>Member profiles, services, and contact paths.</h1>
+        <p>会员资料、服务范围与联系方向。Final 84-member list can replace this starter content directly.</p>
+        <div className="directory-tools">
+          <Label text="Search members">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, company, service..." />
+          </Label>
+          <Label text="Category">
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              {categories.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </Label>
+        </div>
+      </section>
+
+      <section className="member-directory">
+        <div className="public-member-grid">
+          {filtered.map((member, index) => (
+            <button
+              className="public-member-card"
+              key={member.name}
+              onClick={() => {
+                setSelected(member);
+                setTab("about");
+              }}
+            >
+              <span className={`avatar-chip avatar-${(index % 5) + 1}`}>{member.name.split(" ").map((word) => word[0]).join("")}</span>
+              <strong>{member.name}</strong>
+              <small>{member.role}</small>
+              <p>{member.company}</p>
+              <em>{member.category}</em>
+            </button>
+          ))}
+        </div>
+        {selected && (
+          <aside className="member-drawer">
+            <button className="icon-button drawer-close" aria-label="Close member profile" onClick={() => setSelected(null)}>
+              <X />
+            </button>
+            <span className="section-label">{selected.category}</span>
+            <h2>{selected.name}</h2>
+            <p>{selected.role} · {selected.company}</p>
+            <blockquote>{selected.quote}</blockquote>
+            <div className="drawer-tabs">
+              {["about", "catalog", "connect"].map((item) => (
+                <button className={tab === item ? "active" : ""} key={item} onClick={() => setTab(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+            {tab === "about" && <p className="drawer-copy">{selected.bio}</p>}
+            {tab === "catalog" && (
+              <div className="service-pill-list">
+                {selected.services.map((service) => <span key={service}>{service}</span>)}
+              </div>
+            )}
+            {tab === "connect" && (
+              <div className="connect-box">
+                <Mail />
+                <div>
+                  <strong>{selected.contact}</strong>
+                  <span>Replace with verified member email/phone before public launch.</span>
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
+      </section>
+    </Shell>
+  );
+}
+
+function CatalogPage() {
+  const [query, setQuery] = useState("");
+  const filtered = serviceCategories.filter((category) => {
+    const haystack = `${category.name} ${category.zh} ${category.services.join(" ")}`.toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  });
+
+  return (
+    <Shell wide>
+      <section className="directory-head">
+        <span className="section-label">What We Do</span>
+        <h1>Services and products from Tian Yi members.</h1>
+        <p>Use this as the public catalog structure. Final member-specific listings can be plugged in once provided.</p>
+        <div className="directory-tools single">
+          <Label text="Search catalog">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search service, product, or category..." />
+          </Label>
+        </div>
+      </section>
+
+      <section className="catalog-accordion">
+        {filtered.map((category, index) => (
+          <details key={category.name} open={index < 3}>
+            <summary>
+              <span>
+                <strong>{category.name}</strong>
+                <small>{category.zh}</small>
+              </span>
+              <ChevronRight />
+            </summary>
+            <div className="service-pill-list">
+              {category.services.map((service) => <span key={service}>{service}</span>)}
+            </div>
+          </details>
+        ))}
+      </section>
+    </Shell>
+  );
+}
+
+function GamePage() {
+  return (
+    <Shell wide>
+      <HeroHeader eyebrow="Internal BNI Tian Yi" title="TIAN YI OneSystem" sub="Rules, leaderboard, and weekly update access for members." />
+      <section className="game-layout">
+      <div className="panel stack">
+        <div className="section-heading">
+          <Medal />
+          <div>
+            <h2>游戏规则 Game logic</h2>
+            <p>Points are calculated from weekly activities and admin-verified attendance.</p>
+          </div>
+        </div>
+        <div className="score-rule-list">
+          <div><strong>1-2-1</strong><span>1 pt each, max 2</span></div>
+          <div><strong>Training</strong><span>5 pts each</span></div>
+          <div><strong>Referral</strong><span>5 pts each</span></div>
+          <div><strong>TYFCB</strong><span>1 / 3 / 6 / 9 / 12 pts by amount tier</span></div>
+          <div><strong>Visitor</strong><span>10 pts each, 25 pts when joined</span></div>
+          <div><strong>Full attendance</strong><span>3 bonus pts when activity and attendance conditions are met</span></div>
+        </div>
+        <Link className="primary-link" to="/game/weeklyupdate">
+          <Upload /> 提交每周更新 Submit weekly update
+        </Link>
+      </div>
+      <GameLeaderboard />
+      </section>
+    </Shell>
+  );
+}
+
+function GameLeaderboard() {
+  const [rows, setRows] = useState(DEMO_BOARD);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isLocalPreview()) return;
+    setLoading(true);
+    supabase.rpc("team_leaderboard")
+      .then(({ data }) => {
+        if (data?.length) setRows(data);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <section className="panel stack">
+      <div className="section-heading">
+        <BarChart3 />
+        <div>
+          <h2>Leaderboard 排行榜</h2>
+          <p>Ranking is by buddy pair, not individual member.</p>
+        </div>
+      </div>
+      <div className="leaderboard">
+        {loading && <p className="muted">Loading leaderboard...</p>}
+        {rows.map((team, index) => (
+          <div className="leader-row" key={team.team_id || team.team_no || team.name}>
+            <div>
+              <em>#{index + 1}</em>
+              <strong>{team.name || `Team ${team.team_no}`}</strong>
+              <span>{team.member_a_name || team.member_one || "Member A"} + {team.member_b_name || team.member_two || "Member B"}</span>
+            </div>
+            <b>{team.total_score || team.score || 0} pts</b>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WeeklyUpdatePage() {
   const [session, setSession] = useState(null);
   const [member, setMember] = useState(null);
   const [demoMember, setDemoMember] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-member") === "1");
@@ -157,7 +526,7 @@ function PublicPortal() {
 }
 
 async function linkAndLoadMember(setMember) {
-  const { data, error } = await supabase.rpc("tianyi_link_current_user");
+  const { data, error } = await supabase.rpc("link_current_user");
   if (error) {
     setMember(null);
     return;
@@ -176,18 +545,22 @@ function LoadingScreen() {
   );
 }
 
-function HeroHeader() {
+function HeroHeader({
+  eyebrow = "BNI Klang Region",
+  title = "TIAN YI OneSystem",
+  sub = "Weekly accountability portal 每周活动提交系统",
+}) {
   return (
     <header className="hero">
       <div className="brand-row">
         <div className="brand-mark">天</div>
         <div>
-          <p>BNI Klang Region</p>
-          <h1>Tianyi Game 天一游戏</h1>
+          <p>{eyebrow}</p>
+          <h1>{title}</h1>
         </div>
       </div>
       <div className="hero-copy">
-        <p>Weekly accountability portal 每周活动提交系统</p>
+        <p>{sub}</p>
         <span>01 Jun 2026 - 31 Jul 2026</span>
       </div>
     </header>
@@ -205,7 +578,7 @@ function MemberOtpLogin({ onDemo }) {
     event.preventDefault();
     setBusy(true);
     setMessage("");
-    const { data, error } = await supabase.rpc("tianyi_find_member", {
+    const { data, error } = await supabase.rpc("find_member", {
       p_email: normalizeEmail(form.email),
       p_name: form.name.trim(),
     });
@@ -313,8 +686,8 @@ function WeeklyDesk({ member, demo = false }) {
     }
     const available = currentSubmissionWeeks();
     const [{ data: dbWeeks }, { data: subs }] = await Promise.all([
-      supabase.from("tianyi_weeks").select("*").in("id", available.map((week) => week.id)).order("id", { ascending: false }),
-      supabase.from("tianyi_submission_details").select("*").eq("member_id", member.id).order("submitted_at", { ascending: false }),
+      supabase.from("weeks").select("*").in("id", available.map((week) => week.id)).order("id", { ascending: false }),
+      supabase.from("submission_details").select("*").eq("member_id", member.id).order("submitted_at", { ascending: false }),
     ]);
     setWeeks(dbWeeks?.length ? dbWeeks : available);
     setSubmissions(subs || []);
@@ -326,8 +699,6 @@ function WeeklyDesk({ member, demo = false }) {
   }, [member.id, demo]);
 
   if (loading) return <LoadingScreen />;
-  const submittedWeekIds = new Set(submissions.map((item) => item.week_id));
-
   return (
     <section className="stack">
       <div className="member-card">
@@ -359,12 +730,12 @@ function WeeklyDesk({ member, demo = false }) {
           </div>
           <div className="week-grid">
             {weeks.map((week) => {
-              const submitted = submittedWeekIds.has(week.id);
+              const submitted = !canSubmitWeek(submissions, week.id);
               return (
                 <button key={week.id} className="week-card" disabled={submitted && !demo} onClick={() => setSelectedWeek(week)}>
                   <div>
                     <strong>{week.label}</strong>
-                    <span>{submitted && !demo ? "Submitted 已提交" : "Open for preview 可预览"}</span>
+                    <span>{submitted && !demo ? "已提交 Submitted" : "可提交 Open"}</span>
                   </div>
                   {submitted ? <CheckCircle2 /> : <ChevronRight />}
                 </button>
@@ -388,15 +759,13 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
     referrals: 0,
     tyfcb: "",
     visitors: 0,
-    visitor_joined: 0,
-    attended: false,
   });
   const [files, setFiles] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const score = calcScore(form);
-  const neededEvidence = evidenceKindsForForm(form);
+  const evidenceKinds = Object.keys(FIELD_META);
 
   async function submit(event) {
     event.preventDefault();
@@ -405,11 +774,11 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
       setError("Preview mode only. Real submission requires OTP login. 预览模式不会提交。");
       return;
     }
-    for (const kind of neededEvidence) {
-      if (!files[kind]?.length) {
-        setError(`${FIELD_META[kind].label} proof photo is required. 需要上传证明照片。`);
-        return;
-      }
+    const selectedFiles = Object.values(files).flatMap((list) => Array.from(list || []));
+    const invalidFile = selectedFiles.find((file) => !file.type.startsWith("image/") || file.size > MAX_EVIDENCE_BYTES);
+    if (invalidFile) {
+      setError("Proof photos must be images under 5MB. 证明照片必须是 5MB 以下的图片。");
+      return;
     }
     setBusy(true);
     const payload = {
@@ -420,11 +789,10 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
       referrals: Number(form.referrals) || 0,
       tyfcb: Number(form.tyfcb) || 0,
       visitors: Number(form.visitors) || 0,
-      visitor_joined: Number(form.visitor_joined) || 0,
-      attended: form.attended,
+      visitor_joined: 0,
     };
     const { data: submission, error: insertError } = await supabase
-      .from("tianyi_submissions")
+      .from("submissions")
       .insert(payload)
       .select()
       .single();
@@ -436,11 +804,11 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
     }
 
     const evidenceRows = [];
-    for (const kind of neededEvidence) {
+    for (const kind of evidenceKinds) {
       for (const file of Array.from(files[kind] || [])) {
         const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
         const path = `${member.id}/${submission.id}/${kind}-${Date.now()}-${safeName}`;
-        const { error: uploadError } = await supabase.storage.from("tianyi-evidence").upload(path, file);
+        const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(path, file);
         if (uploadError) {
           setError(uploadError.message);
           setBusy(false);
@@ -449,7 +817,7 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
         evidenceRows.push({ submission_id: submission.id, kind, file_path: path, file_name: file.name });
       }
     }
-    if (evidenceRows.length) await supabase.from("tianyi_evidence").insert(evidenceRows);
+    if (evidenceRows.length) await supabase.from("evidence").insert(evidenceRows);
 
     await fetch("/api/submission-email", {
       method: "POST",
@@ -461,12 +829,13 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
         week: week.label,
         score: submission.score,
         origin: window.location.origin,
+        adminEmails: ADMIN_EMAILS,
       }),
     }).catch(() => {});
 
     setBusy(false);
     await onSubmitted();
-    navigate(`/submission/${submission.id}`);
+    navigate(`/game/submission/${submission.id}`);
   }
 
   return (
@@ -497,22 +866,18 @@ function WeeklyForm({ member, week, onCancel, onSubmitted, demo = false }) {
         <strong>{tierPoints(Number(form.tyfcb) || 0)} pts</strong>
       </div>
       <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => setForm({ ...form, visitors: value })} />
-      <ActivityStepper title="Visitor joined 访客加入" sub="25 pts each 每位25分" value={form.visitor_joined} max={20} onChange={(value) => setForm({ ...form, visitor_joined: value })} />
-      <label className="toggle-row">
-        <input type="checkbox" checked={form.attended} onChange={(e) => setForm({ ...form, attended: e.target.checked })} />
-        <span>Attendance marked 出席已确认</span>
-      </label>
+      <div className="notice">
+        出席与访客加入由管理员确认。Attendance and visitor joined are confirmed by admin.
+      </div>
 
-      {neededEvidence.length > 0 && (
-        <div className="proof-box">
-          <h3>Proof photos 证明照片</h3>
-          {neededEvidence.map((kind) => (
+      <div className="proof-box">
+          <h3>可选证明照片 Optional proof photos</h3>
+          {evidenceKinds.map((kind) => (
             <Label key={kind} text={`${FIELD_META[kind].label} ${FIELD_META[kind].zh}`}>
               <input type="file" accept="image/*" multiple onChange={(e) => setFiles({ ...files, [kind]: e.target.files })} />
             </Label>
           ))}
-        </div>
-      )}
+      </div>
 
       {error && <p className="error">{error}</p>}
       <div className="button-row">
@@ -557,7 +922,7 @@ function SubmissionHistory({ submissions }) {
       <div className="history-list">
         {submissions.length === 0 && <p className="muted">No submissions yet. 暂无提交。</p>}
         {submissions.map((item) => (
-          <Link to={`/submission/${item.id}`} className="history-row" key={item.id}>
+          <Link to={`/game/submission/${item.id}`} className="history-row" key={item.id}>
             <div>
               <strong>{item.week_label}</strong>
               <span>{new Date(item.submitted_at).toLocaleString()}</span>
@@ -582,7 +947,7 @@ function SubmissionReceipt() {
       return;
     }
     supabase
-      .from("tianyi_submission_details")
+      .from("submission_details")
       .select("*")
       .eq("id", id)
       .single()
@@ -607,6 +972,12 @@ function SubmissionReceipt() {
           <CheckCircle2 className="receipt-icon" />
           <p>Read-only submission 已锁定提交</p>
           <h2>{submission.week_label}</h2>
+          {submission.status === "archived" && (
+            <div className="notice">
+              此提交已归档，可重新提交。This submission was archived; please submit again.
+              <Link to="/game/weeklyupdate"> 前往提交 Go to weekly update</Link>
+            </div>
+          )}
           <div className="score-badge large">
             <strong>{submission.score}</strong>
             <span>pts 分</span>
@@ -641,7 +1012,11 @@ function AdminPortal() {
       setChecking(false);
       return;
     }
-    const { data } = await supabase.from("tianyi_admin_users").select("email").maybeSingle();
+    const { data } = await supabase
+      .from("admin_users")
+      .select("email")
+      .eq("email", normalizeEmail(sessionData.session.user.email))
+      .maybeSingle();
     setIsAdmin(Boolean(data));
     setChecking(false);
   }
@@ -657,7 +1032,7 @@ function AdminPortal() {
   return (
     <Shell wide>
       <header className="admin-header">
-        <Link to="/" className="brand-row admin-brand">
+        <Link to="/website" className="brand-row admin-brand">
           <div className="brand-mark">天</div>
           <div>
             <p>Admin portal 管理后台</p>
@@ -693,27 +1068,18 @@ function AdminPortal() {
 
 function AdminLogin({ isDenied, onDemo }) {
   const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState("");
-  const [phase, setPhase] = useState("email");
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useState(isDenied ? "This email is not an admin. 此电邮不是管理员。" : "");
   const [busy, setBusy] = useState(false);
 
-  async function send(event) {
+  async function signIn(event) {
     event.preventDefault();
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOtp({ email: normalizeEmail(email), options: { shouldCreateUser: true } });
-    setBusy(false);
-    if (error) setMessage(error.message);
-    else {
-      setPhase("otp");
-      setMessage("OTP sent. 验证码已发送。");
-    }
-  }
-
-  async function verify(event) {
-    event.preventDefault();
-    setBusy(true);
-    const { error } = await supabase.auth.verifyOtp({ email: normalizeEmail(email), token: otp.trim(), type: "email" });
+    setMessage("");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizeEmail(email),
+      password,
+    });
     setBusy(false);
     if (error) setMessage(error.message);
   }
@@ -723,20 +1089,18 @@ function AdminLogin({ isDenied, onDemo }) {
       <div className="section-heading">
         <ShieldCheck />
         <div>
-          <h2>Admin sign in 管理员登入</h2>
-          <p>Use an email seeded in `tianyi_admin_users`.</p>
+          <h2>管理员登入 Admin sign in</h2>
+          <p>Use an approved admin email and password.</p>
         </div>
       </div>
-      <form onSubmit={phase === "email" ? send : verify} className="stack">
+      <form onSubmit={signIn} className="stack">
         <Label text="Admin email 管理员电邮">
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={phase === "otp"} required />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </Label>
-        {phase === "otp" && (
-          <Label text="OTP 验证码">
-            <input value={otp} onChange={(e) => setOtp(e.target.value)} required />
-          </Label>
-        )}
-        <Button disabled={busy}>{busy ? <Loader2 className="spin" /> : <Mail />} {phase === "email" ? "Send OTP 发送验证码" : "Verify 验证"}</Button>
+        <Label text="Password 密码">
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </Label>
+        <Button disabled={busy}>{busy ? <Loader2 className="spin" /> : <ShieldCheck />} 登入 Sign in</Button>
         {isLocalPreview() && (
           <button className="ghost-button" type="button" onClick={onDemo}>
             <Eye /> Preview admin 管理预览
@@ -839,9 +1203,9 @@ function Dashboard({ refreshKey, demo = false }) {
       return;
     }
     Promise.all([
-      supabase.rpc("tianyi_team_leaderboard"),
-      supabase.from("tianyi_members").select("id", { count: "exact", head: true }),
-      supabase.from("tianyi_submissions").select("id,tyfcb", { count: "exact" }),
+      supabase.rpc("team_leaderboard"),
+      supabase.from("members").select("id", { count: "exact", head: true }),
+      supabase.from("submissions").select("id,tyfcb", { count: "exact" }),
     ]).then(([leaderboard, members, submissions]) => {
       setBoard(leaderboard.data || []);
       setStats({
@@ -910,7 +1274,11 @@ function MemberManager({ onChanged, demo = false }) {
       setMembers(DEMO_MEMBERS);
       return;
     }
-    const { data: memberData } = await supabase.from("tianyi_members").select("*, buddy:tianyi_members!tianyi_members_buddy_member_id_fkey(id,full_name,email)").order("full_name");
+    const { data: memberData } = await supabase
+      .from("members")
+      .select("*, buddy:members!members_buddy_member_id_fkey(id,full_name,email), buddy_teams(team_no,name)")
+      .eq("is_active", true)
+      .order("full_name");
     setMembers(memberData || []);
   }
 
@@ -930,7 +1298,7 @@ function MemberManager({ onChanged, demo = false }) {
       onChanged();
       return;
     }
-    await supabase.from("tianyi_members").insert({ ...newMember, email: normalizeEmail(newMember.email) });
+    await supabase.from("members").insert({ ...newMember, email: normalizeEmail(newMember.email) });
     setNewMember({ full_name: "", email: "", company: "" });
     setIsAdding(false);
     await load();
@@ -952,8 +1320,24 @@ function MemberManager({ onChanged, demo = false }) {
       }));
       return;
     }
-    await supabase.from("tianyi_members").update({ buddy_member_id: buddyMemberId || null }).eq("id", memberId);
-    if (buddyMemberId) await supabase.from("tianyi_members").update({ buddy_member_id: memberId }).eq("id", buddyMemberId);
+    if (buddyMemberId) {
+      await supabase.rpc("assign_buddy_pair", {
+        p_member_id: memberId,
+        p_buddy_member_id: buddyMemberId,
+      });
+    } else {
+      await supabase.from("members").update({ buddy_member_id: null, buddy_team_id: null }).eq("id", memberId);
+    }
+    await load();
+    onChanged();
+  }
+
+  async function deactivateMember(memberId) {
+    if (demo) {
+      setMembers((current) => current.filter((member) => member.id !== memberId));
+      return;
+    }
+    await supabase.from("members").update({ is_active: false, buddy_member_id: null, buddy_team_id: null }).eq("id", memberId);
     await load();
     onChanged();
   }
@@ -977,18 +1361,22 @@ function MemberManager({ onChanged, demo = false }) {
         </div>
         <div className="table-wrap member-table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Buddy member</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Buddy pair</th><th>Buddy member</th><th>Action</th></tr></thead>
             <tbody>
               {filteredMembers.map((member) => (
                 <tr key={member.id}>
                   <td>{member.full_name}</td>
                   <td>{member.email}</td>
                   <td>{member.company || "-"}</td>
+                  <td>{member.buddy_teams?.team_no ? `Pair ${member.buddy_teams.team_no}` : "-"}</td>
                   <td>
                     <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
                       <option value="">None</option>
                       {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
                     </select>
+                  </td>
+                  <td>
+                    <button className="table-danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate</button>
                   </td>
                 </tr>
               ))}
@@ -1004,6 +1392,7 @@ function MemberManager({ onChanged, demo = false }) {
               </div>
               <dl>
                 <div><dt>Company 公司</dt><dd>{member.company || "-"}</dd></div>
+                <div><dt>Buddy pair 伙伴组</dt><dd>{member.buddy_teams?.team_no || "-"}</dd></div>
                 <div><dt>Buddy partner 伙伴</dt><dd>{member.buddy?.full_name || "None"}</dd></div>
               </dl>
               <Label text="Link buddy member 绑定伙伴会员">
@@ -1012,6 +1401,7 @@ function MemberManager({ onChanged, demo = false }) {
                   {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
                 </select>
               </Label>
+              <button className="danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate 停用</button>
             </article>
           ))}
         </div>
@@ -1052,7 +1442,7 @@ function SubmissionReview({ demo = false }) {
       setItems(DEMO_SUBMISSIONS);
       return;
     }
-    supabase.from("tianyi_submission_details").select("*").order("submitted_at", { ascending: false }).then(({ data }) => setItems(data || []));
+    supabase.from("submission_details").select("*").order("submitted_at", { ascending: false }).then(({ data }) => setItems(data || []));
   }, [demo]);
   return (
     <div className="admin-content">
@@ -1076,8 +1466,9 @@ function VerificationQueue({ kind, demo = false }) {
       return;
     }
     const { data } = await supabase
-      .from("tianyi_submission_details")
-      .select("*, tianyi_evidence(*)")
+      .from("submission_details")
+      .select("*, evidence(*)")
+      .eq("status", "active")
       .gt(kind === "tyfcb" ? "tyfcb" : kind === "one_to_one" ? "one_to_one" : kind === "referral" ? "referrals" : kind === "visitor" ? "visitors" : "training", 0)
       .order("submitted_at", { ascending: false });
     setItems(data || []);
@@ -1090,18 +1481,22 @@ function VerificationQueue({ kind, demo = false }) {
       setItems((current) => current.map((item) => item.id === id ? { ...item, [statusField]: value } : item));
       return;
     }
-    await supabase.from("tianyi_submissions").update({ [statusField]: value }).eq("id", id);
+    await supabase.from("submissions").update({ [statusField]: value }).eq("id", id);
     await load();
   }
 
   async function rejectWithReason(reason) {
     if (!rejecting) return;
     if (demo) {
-      setItems((current) => current.map((item) => item.id === rejecting.id ? { ...item, [statusField]: "rejected", [`${kind}_admin_note`]: reason } : item));
+      setItems((current) => current.filter((item) => item.id !== rejecting.id));
       setRejecting(null);
       return;
     }
-    await supabase.from("tianyi_submissions").update({ [statusField]: "rejected", admin_note: reason }).eq("id", rejecting.id);
+    await supabase.from("submissions").update({ [statusField]: "rejected", admin_note: reason }).eq("id", rejecting.id);
+    await supabase.rpc("archive_submission", {
+      p_submission_id: rejecting.id,
+      p_reason: reason,
+    });
     await fetch("/api/rejection-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1118,13 +1513,23 @@ function VerificationQueue({ kind, demo = false }) {
     await load();
   }
 
+  async function updateVisitorJoined(id, value) {
+    const nextValue = Math.max(0, Math.min(20, Number(value) || 0));
+    if (demo) {
+      setItems((current) => current.map((item) => item.id === id ? { ...item, visitor_joined: nextValue } : item));
+      return;
+    }
+    await supabase.from("submissions").update({ visitor_joined: nextValue }).eq("id", id);
+    await load();
+  }
+
   return (
     <div className="admin-content">
       <section className="panel">
         <div className="section-heading"><Eye /><div><h2>{FIELD_META[kind]?.label || kind} verification 审核</h2><p>Approve or reject proof photos.</p></div></div>
         <div className="review-list">
           {items.map((item) => (
-            <ReviewCard key={item.id} item={item} kind={kind} statusField={statusField} onStatus={setStatus} onReject={() => setRejecting(item)} />
+            <ReviewCard key={item.id} item={item} kind={kind} statusField={statusField} onStatus={setStatus} onReject={() => setRejecting(item)} onVisitorJoined={updateVisitorJoined} />
           ))}
         </div>
       </section>
@@ -1169,8 +1574,8 @@ function RejectModal({ item, kind, onCancel, onConfirm }) {
   );
 }
 
-function ReviewCard({ item, kind, statusField, onStatus, onReject }) {
-  const evidence = (item.tianyi_evidence || []).filter((row) => row.kind === kind);
+function ReviewCard({ item, kind, statusField, onStatus, onReject, onVisitorJoined }) {
+  const evidence = (item.evidence || []).filter((row) => row.kind === kind);
   return (
     <article className="review-card">
       <div>
@@ -1180,8 +1585,13 @@ function ReviewCard({ item, kind, statusField, onStatus, onReject }) {
       </div>
       <div className="proof-links">
         {evidence.map((file) => <EvidenceLink file={file} key={file.id} />)}
-        {evidence.length === 0 && <span>No proof photo</span>}
+        {evidence.length === 0 && <span>Optional proof not uploaded</span>}
       </div>
+      {kind === "visitor" && (
+        <Label text="访客加入 Visitor joined">
+          <input type="number" min="0" max="20" value={item.visitor_joined || 0} onChange={(event) => onVisitorJoined(item.id, event.target.value)} />
+        </Label>
+      )}
       <div className="verify-actions">
         <button onClick={() => onStatus(item.id, "approved")}><CheckCircle2 /> Approve</button>
         <button onClick={onReject}><XCircle /> Reject</button>
@@ -1197,7 +1607,7 @@ function EvidenceLink({ file }) {
       setUrl("");
       return;
     }
-    supabase.storage.from("tianyi-evidence").createSignedUrl(file.file_path, 3600).then(({ data }) => setUrl(data?.signedUrl || ""));
+    supabase.storage.from(EVIDENCE_BUCKET).createSignedUrl(file.file_path, 3600).then(({ data }) => setUrl(data?.signedUrl || ""));
   }, [file.file_path]);
   if (file.file_path?.startsWith("demo/")) return <span><FileImage /> {file.file_name || "Demo proof"}</span>;
   return url ? <a href={url} target="_blank" rel="noreferrer"><FileImage /> {file.file_name || "Open proof"}</a> : <span>Loading proof...</span>;
@@ -1220,9 +1630,9 @@ function AttendanceList({ demo = false }) {
       return;
     }
     const [{ data: weekRows }, { data: memberRows }, { data: attendanceRows }] = await Promise.all([
-      supabase.from("tianyi_weeks").select("*").order("id"),
-      supabase.from("tianyi_members").select("id,full_name,email,company").order("full_name"),
-      supabase.from("tianyi_attendance").select("member_id").eq("week_id", selectedWeekId).eq("attended", true),
+      supabase.from("weeks").select("*").order("id"),
+      supabase.from("members").select("id,full_name,email,company").order("full_name"),
+      supabase.from("attendance").select("member_id").eq("week_id", selectedWeekId).eq("attended", true),
     ]);
     setWeeks(weekRows?.length ? weekRows : WEEKS);
     setMembers(memberRows || []);
@@ -1250,10 +1660,10 @@ function AttendanceList({ demo = false }) {
     const removed = attendanceIds.filter((id) => !draftIds.includes(id));
     const addedRows = draftIds.map((memberId) => ({ week_id: Number(selectedWeekId), member_id: memberId, attended: true }));
     if (removed.length) {
-      await supabase.from("tianyi_attendance").delete().eq("week_id", selectedWeekId).in("member_id", removed);
+      await supabase.from("attendance").delete().eq("week_id", selectedWeekId).in("member_id", removed);
     }
     if (addedRows.length) {
-      await supabase.from("tianyi_attendance").upsert(addedRows, { onConflict: "week_id,member_id" });
+      await supabase.from("attendance").upsert(addedRows, { onConflict: "week_id,member_id" });
     }
     setIsModalOpen(false);
     await load();
@@ -1350,13 +1760,14 @@ function SubmissionTable({ items }) {
       <div className="table-wrap submission-table-wrap">
         <table>
           <thead>
-            <tr><th>Member</th><th>Week</th><th>Buddy</th><th>1-2-1</th><th>Training</th><th>Referral</th><th>TYFCB</th><th>Visitor</th><th>Score</th></tr>
+            <tr><th>Member</th><th>Week</th><th>Status</th><th>Buddy</th><th>1-2-1</th><th>Training</th><th>Referral</th><th>TYFCB</th><th>Visitor</th><th>Score</th></tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.id} className="clickable-row" onClick={() => setSelected(item)}>
                 <td>{item.full_name}</td>
                 <td>{item.week_label}</td>
+                <td>{item.status || "active"}</td>
                 <td>{item.team_no || "-"}</td>
                 <td>{item.one_to_one}</td>
                 <td>{item.training}</td>
@@ -1374,7 +1785,7 @@ function SubmissionTable({ items }) {
           <button className="submission-card" key={item.id} onClick={() => setSelected(item)}>
             <div>
               <strong>{item.full_name}</strong>
-              <span>{item.week_label}</span>
+              <span>{item.week_label} · {item.status || "active"}</span>
             </div>
             <div className="submission-card-score">{item.score} pts</div>
             <dl>

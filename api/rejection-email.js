@@ -4,7 +4,7 @@ export default async function handler(request, response) {
     return;
   }
 
-  const { email, name, week, kind, reason } = request.body || {};
+  const { email, name, week, kind, reason, origin } = request.body || {};
   if (!email || !reason) {
     response.status(400).json({ error: "Missing email or reason" });
     return;
@@ -15,12 +15,14 @@ export default async function handler(request, response) {
     return;
   }
 
+  const appOrigin = process.env.VITE_APP_ORIGIN || origin || "https://tianyi.agaventures.ai";
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
       <h2>Tianyi Game proof rejected 天一游戏证明被拒绝</h2>
       <p>Hi ${escapeHtml(name || "member")}, your <strong>${escapeHtml(kind || "proof")}</strong> proof for <strong>${escapeHtml(week || "")}</strong> needs correction.</p>
       <p><strong>Reason 原因:</strong> ${escapeHtml(reason)}</p>
-      <p>Please contact the admin team if you need help. 如需协助，请联系管理员。</p>
+      <p>Please submit again from the weekly update page. 请到每周更新页面重新提交。</p>
+      <p><a href="${appOrigin}/game/weeklyupdate" style="color:#0b5fff">Submit again 重新提交</a></p>
     </div>
   `;
 
@@ -31,7 +33,7 @@ export default async function handler(request, response) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: process.env.MAIL_FROM || "Tianyi Game <noreply@agaventures.ai>",
+      from: process.env.MAIL_FROM || "Tian Yi Game <admin@agaventures.ai>",
       to: [email],
       subject: `Tianyi Game proof rejected ${week || ""}`,
       html,
