@@ -63,6 +63,7 @@ import "./styles.css";
 
 const isLocalPreview = () => ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
+const ADMIN_TOKEN_KEY = "tianyi-admin-token";
 
 function App() {
   return (
@@ -1117,32 +1118,29 @@ function SubmissionReceipt() {
 }
 
 function AdminPortal() {
-  const [session, setSession] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminSession, setAdminSession] = useState(null);
   const [demoAdmin, setDemoAdmin] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-admin") === "1");
   const [checking, setChecking] = useState(true);
 
   async function checkAdmin() {
-    const { data: sessionData } = await supabase.auth.getSession();
-    setSession(sessionData.session);
-    if (!sessionData.session) {
-      setIsAdmin(false);
+    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    if (!token) {
+      setAdminSession(null);
       setChecking(false);
       return;
     }
-    const { data } = await supabase
-      .from("admin_users")
-      .select("email")
-      .eq("email", normalizeEmail(sessionData.session.user.email))
-      .maybeSingle();
-    setIsAdmin(Boolean(data));
+    const { data } = await supabase.rpc("admin_check_session", { p_token: token });
+    const sessionRow = data?.[0];
+    if (sessionRow) setAdminSession({ ...sessionRow, token });
+    else {
+      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      setAdminSession(null);
+    }
     setChecking(false);
   }
 
   useEffect(() => {
     checkAdmin();
-    const { data } = supabase.auth.onAuthStateChange(checkAdmin);
-    return () => data.subscription.unsubscribe();
   }, []);
 
   if (checking) return <LoadingScreen />;
@@ -1157,14 +1155,16 @@ function AdminPortal() {
             <h1>Tianyi Game</h1>
           </div>
         </Link>
-        {(session || demoAdmin) && (
-          <button className="ghost-button" onClick={() => {
+        {(adminSession || demoAdmin) && (
+          <button className="ghost-button" onClick={async () => {
             if (demoAdmin) {
               sessionStorage.removeItem("tianyi-demo-admin");
               window.location.reload();
               return;
             }
-            supabase.auth.signOut();
+            await supabase.rpc("admin_logout", { p_token: adminSession.token }).catch(() => {});
+            localStorage.removeItem(ADMIN_TOKEN_KEY);
+            setAdminSession(null);
           }}>
             <LogOut /> Logout 登出
           </button>
@@ -1172,34 +1172,40 @@ function AdminPortal() {
       </header>
       {demoAdmin ? (
         <AdminWorkspace demo />
-      ) : !session || !isAdmin ? (
-        <AdminLogin isDenied={Boolean(session && !isAdmin)} onDemo={() => {
+      ) : !adminSession ? (
+        <AdminLogin onSignedIn={setAdminSession} onDemo={() => {
           sessionStorage.setItem("tianyi-demo-admin", "1");
           setDemoAdmin(true);
         }} />
       ) : (
-        <AdminWorkspace />
+        <AdminWorkspace adminToken={adminSession.token} />
       )}
     </Shell>
   );
 }
 
-function AdminLogin({ isDenied, onDemo }) {
+function AdminLogin({ onSignedIn, onDemo }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState(isDenied ? "This email is not an admin. 此电邮不是管理员。" : "");
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function signIn(event) {
     event.preventDefault();
     setBusy(true);
     setMessage("");
-    const { error } = await supabase.auth.signInWithPassword({
-      email: normalizeEmail(email),
-      password,
+    const { data, error } = await supabase.rpc("admin_login", {
+      p_email: normalizeEmail(email),
+      p_password: password,
     });
     setBusy(false);
-    if (error) setMessage(error.message);
+    const sessionRow = data?.[0];
+    if (error || !sessionRow?.token) {
+      setMessage(error?.message || "Invalid admin email or password.");
+      return;
+    }
+    localStorage.setItem(ADMIN_TOKEN_KEY, sessionRow.token);
+    onSignedIn(sessionRow);
   }
 
   return (
@@ -1208,7 +1214,7 @@ function AdminLogin({ isDenied, onDemo }) {
         <ShieldCheck />
         <div>
           <h2>管理员登入 Admin sign in</h2>
-          <p>Use an approved admin email and password.</p>
+          <p>Use the TianYi admin email and password.</p>
         </div>
       </div>
       <form onSubmit={signIn} className="stack">
@@ -1230,7 +1236,7 @@ function AdminLogin({ isDenied, onDemo }) {
   );
 }
 
-function AdminWorkspace({ demo = false }) {
+function AdminWorkspace({ demo = false, adminToken = "" }) {
   const [tab, setTab] = useState("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [showAd, setShowAd] = useState(false);
@@ -1266,11 +1272,11 @@ function AdminWorkspace({ demo = false }) {
             </button>
           ))}
         </nav>
-        {tab === "dashboard" && <Dashboard refreshKey={refreshKey} demo={demo} />}
-        {tab === "members" && <MemberManager onChanged={() => setRefreshKey((v) => v + 1)} demo={demo} />}
-        {tab === "submissions" && <SubmissionReview demo={demo} />}
-        {["one_to_one", "training", "referral", "tyfcb", "visitor"].includes(tab) && <VerificationQueue kind={tab} demo={demo} />}
-        {tab === "attendance" && <AttendanceList demo={demo} />}
+        {tab === "dashboard" && <Dashboard refreshKey={refreshKey} demo={demo} adminToken={adminToken} />}
+        {tab === "members" && <MemberManager onChanged={() => setRefreshKey((v) => v + 1)} demo={demo} adminToken={adminToken} />}
+        {tab === "submissions" && <SubmissionReview demo={demo} adminToken={adminToken} />}
+        {["one_to_one", "training", "referral", "tyfcb", "visitor"].includes(tab) && <VerificationQueue kind={tab} demo={demo} adminToken={adminToken} />}
+        {tab === "attendance" && <AttendanceList demo={demo} adminToken={adminToken} />}
       </section>
       {showAd && <AgaAdPopup onClose={() => setShowAd(false)} />}
     </>
@@ -1306,7 +1312,7 @@ function AgaAdPopup({ onClose }) {
   );
 }
 
-function Dashboard({ refreshKey, demo = false }) {
+function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
   const [board, setBoard] = useState([]);
   const [stats, setStats] = useState({ members: 0, submissions: 0, tyfcb: 0 });
 
@@ -1320,19 +1326,11 @@ function Dashboard({ refreshKey, demo = false }) {
       });
       return;
     }
-    Promise.all([
-      supabase.rpc("team_leaderboard"),
-      supabase.from("members").select("id", { count: "exact", head: true }),
-      supabase.from("submissions").select("id,tyfcb", { count: "exact" }),
-    ]).then(([leaderboard, members, submissions]) => {
-      setBoard(leaderboard.data || []);
-      setStats({
-        members: members.count || 0,
-        submissions: submissions.count || 0,
-        tyfcb: (submissions.data || []).reduce((sum, item) => sum + Number(item.tyfcb || 0), 0),
-      });
+    supabase.rpc("admin_dashboard", { p_token: adminToken }).then(({ data }) => {
+      setBoard(data?.leaderboard || []);
+      setStats(data?.stats || { members: 0, submissions: 0, tyfcb: 0 });
     });
-  }, [refreshKey, demo]);
+  }, [refreshKey, demo, adminToken]);
 
   return (
     <div className="admin-content">
@@ -1381,7 +1379,7 @@ function Metric({ label, value }) {
   );
 }
 
-function MemberManager({ onChanged, demo = false }) {
+function MemberManager({ onChanged, demo = false, adminToken = "" }) {
   const [members, setMembers] = useState([]);
   const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "" });
   const [searchTerm, setSearchTerm] = useState("");
@@ -1392,15 +1390,11 @@ function MemberManager({ onChanged, demo = false }) {
       setMembers(DEMO_MEMBERS);
       return;
     }
-    const { data: memberData } = await supabase
-      .from("members")
-      .select("*, buddy:members!members_buddy_member_id_fkey(id,full_name,email), buddy_teams(team_no,name)")
-      .eq("is_active", true)
-      .order("full_name");
-    setMembers(memberData || []);
+    const { data } = await supabase.rpc("admin_members", { p_token: adminToken });
+    setMembers(data || []);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [adminToken]);
 
   async function addMember(event) {
     event.preventDefault();
@@ -1416,7 +1410,12 @@ function MemberManager({ onChanged, demo = false }) {
       onChanged();
       return;
     }
-    await supabase.from("members").insert({ ...newMember, email: normalizeEmail(newMember.email) });
+    await supabase.rpc("admin_add_member", {
+      p_token: adminToken,
+      p_full_name: newMember.full_name,
+      p_email: normalizeEmail(newMember.email),
+      p_company: newMember.company,
+    });
     setNewMember({ full_name: "", email: "", company: "" });
     setIsAdding(false);
     await load();
@@ -1438,14 +1437,11 @@ function MemberManager({ onChanged, demo = false }) {
       }));
       return;
     }
-    if (buddyMemberId) {
-      await supabase.rpc("assign_buddy_pair", {
-        p_member_id: memberId,
-        p_buddy_member_id: buddyMemberId,
-      });
-    } else {
-      await supabase.from("members").update({ buddy_member_id: null, buddy_team_id: null }).eq("id", memberId);
-    }
+    await supabase.rpc("admin_assign_buddy_pair", {
+      p_token: adminToken,
+      p_member_id: memberId,
+      p_buddy_member_id: buddyMemberId || null,
+    });
     await load();
     onChanged();
   }
@@ -1455,7 +1451,7 @@ function MemberManager({ onChanged, demo = false }) {
       setMembers((current) => current.filter((member) => member.id !== memberId));
       return;
     }
-    await supabase.from("members").update({ is_active: false, buddy_member_id: null, buddy_team_id: null }).eq("id", memberId);
+    await supabase.rpc("admin_deactivate_member", { p_token: adminToken, p_member_id: memberId });
     await load();
     onChanged();
   }
@@ -1553,15 +1549,15 @@ function MemberManager({ onChanged, demo = false }) {
   );
 }
 
-function SubmissionReview({ demo = false }) {
+function SubmissionReview({ demo = false, adminToken = "" }) {
   const [items, setItems] = useState([]);
   useEffect(() => {
     if (demo) {
       setItems(DEMO_SUBMISSIONS);
       return;
     }
-    supabase.from("submission_details").select("*").order("submitted_at", { ascending: false }).then(({ data }) => setItems(data || []));
-  }, [demo]);
+    supabase.rpc("admin_submissions", { p_token: adminToken }).then(({ data }) => setItems(data || []));
+  }, [demo, adminToken]);
   return (
     <div className="admin-content">
       <section className="panel">
@@ -1572,7 +1568,7 @@ function SubmissionReview({ demo = false }) {
   );
 }
 
-function VerificationQueue({ kind, demo = false }) {
+function VerificationQueue({ kind, demo = false, adminToken = "" }) {
   const [items, setItems] = useState([]);
   const [rejecting, setRejecting] = useState(null);
   const statusField = `${kind}_status`;
@@ -1583,23 +1579,23 @@ function VerificationQueue({ kind, demo = false }) {
       setItems(DEMO_SUBMISSIONS.filter((item) => Number(item[field]) > 0));
       return;
     }
-    const { data } = await supabase
-      .from("submission_details")
-      .select("*, evidence(*)")
-      .eq("status", "active")
-      .gt(kind === "tyfcb" ? "tyfcb" : kind === "one_to_one" ? "one_to_one" : kind === "referral" ? "referrals" : kind === "visitor" ? "visitors" : "training", 0)
-      .order("submitted_at", { ascending: false });
+    const { data } = await supabase.rpc("admin_verification_queue", { p_token: adminToken, p_kind: kind });
     setItems(data || []);
   }
 
-  useEffect(() => { load(); }, [kind]);
+  useEffect(() => { load(); }, [kind, adminToken]);
 
   async function setStatus(id, value) {
     if (demo) {
       setItems((current) => current.map((item) => item.id === id ? { ...item, [statusField]: value } : item));
       return;
     }
-    await supabase.from("submissions").update({ [statusField]: value }).eq("id", id);
+    await supabase.rpc("admin_update_submission", {
+      p_token: adminToken,
+      p_submission_id: id,
+      p_field: statusField,
+      p_value: value,
+    });
     await load();
   }
 
@@ -1610,9 +1606,10 @@ function VerificationQueue({ kind, demo = false }) {
       setRejecting(null);
       return;
     }
-    await supabase.from("submissions").update({ [statusField]: "rejected", admin_note: reason }).eq("id", rejecting.id);
-    await supabase.rpc("archive_submission", {
+    await supabase.rpc("admin_reject_submission", {
+      p_token: adminToken,
       p_submission_id: rejecting.id,
+      p_field: statusField,
       p_reason: reason,
     });
     await fetch("/api/rejection-email", {
@@ -1637,7 +1634,7 @@ function VerificationQueue({ kind, demo = false }) {
       setItems((current) => current.map((item) => item.id === id ? { ...item, visitor_joined: nextValue } : item));
       return;
     }
-    await supabase.from("submissions").update({ visitor_joined: nextValue }).eq("id", id);
+    await supabase.rpc("admin_update_visitor_joined", { p_token: adminToken, p_submission_id: id, p_value: nextValue });
     await load();
   }
 
@@ -1731,7 +1728,7 @@ function EvidenceLink({ file }) {
   return url ? <a href={url} target="_blank" rel="noreferrer"><FileImage /> {file.file_name || "Open proof"}</a> : <span>Loading proof...</span>;
 }
 
-function AttendanceList({ demo = false }) {
+function AttendanceList({ demo = false, adminToken = "" }) {
   const [members, setMembers] = useState([]);
   const [weeks, setWeeks] = useState(WEEKS);
   const [selectedWeekId, setSelectedWeekId] = useState(WEEKS[0]?.id || 1);
@@ -1747,17 +1744,16 @@ function AttendanceList({ demo = false }) {
       setAttendanceIds(DEMO_SUBMISSIONS.filter((item) => item.week_id === Number(selectedWeekId) && item.attended).map((item) => item.member_id));
       return;
     }
-    const [{ data: weekRows }, { data: memberRows }, { data: attendanceRows }] = await Promise.all([
-      supabase.from("weeks").select("*").order("id"),
-      supabase.from("members").select("id,full_name,email,company").order("full_name"),
-      supabase.from("attendance").select("member_id").eq("week_id", selectedWeekId).eq("attended", true),
-    ]);
-    setWeeks(weekRows?.length ? weekRows : WEEKS);
-    setMembers(memberRows || []);
-    setAttendanceIds((attendanceRows || []).map((row) => row.member_id));
+    const { data } = await supabase.rpc("admin_attendance_snapshot", {
+      p_token: adminToken,
+      p_week_id: selectedWeekId,
+    });
+    setWeeks(data?.weeks?.length ? data.weeks : WEEKS);
+    setMembers(data?.members || []);
+    setAttendanceIds(data?.attendance || []);
   }
 
-  useEffect(() => { load(); }, [demo, selectedWeekId]);
+  useEffect(() => { load(); }, [demo, selectedWeekId, adminToken]);
 
   function openAttendanceModal() {
     setDraftIds(attendanceIds);
@@ -1775,14 +1771,11 @@ function AttendanceList({ demo = false }) {
       setIsModalOpen(false);
       return;
     }
-    const removed = attendanceIds.filter((id) => !draftIds.includes(id));
-    const addedRows = draftIds.map((memberId) => ({ week_id: Number(selectedWeekId), member_id: memberId, attended: true }));
-    if (removed.length) {
-      await supabase.from("attendance").delete().eq("week_id", selectedWeekId).in("member_id", removed);
-    }
-    if (addedRows.length) {
-      await supabase.from("attendance").upsert(addedRows, { onConflict: "week_id,member_id" });
-    }
+    await supabase.rpc("admin_save_attendance", {
+      p_token: adminToken,
+      p_week_id: Number(selectedWeekId),
+      p_member_ids: draftIds,
+    });
     setIsModalOpen(false);
     await load();
   }
