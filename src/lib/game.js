@@ -67,3 +67,103 @@ export function money(value) {
 export function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
+
+export const DEMO_MEMBER = {
+  id: "00000000-0000-4000-8000-000000000001",
+  full_name: "Tianyi Demo Member",
+  email: "demo.member@agaventures.ai",
+  company: "AGA Ventures",
+  buddy_team_id: "00000000-0000-4000-8000-000000000041",
+};
+
+export const DEMO_SUBMISSIONS = [
+  {
+    id: "demo-submission-week-1",
+    member_id: DEMO_MEMBER.id,
+    week_id: 1,
+    week_label: "Week 1 (01/06 - 07/06)",
+    full_name: DEMO_MEMBER.full_name,
+    email: DEMO_MEMBER.email,
+    team_no: 7,
+    one_to_one: 2,
+    training: 1,
+    referrals: 3,
+    tyfcb: 12000,
+    visitors: 1,
+    visitor_joined: 0,
+    attended: true,
+    score: 41,
+    one_to_one_status: "pending",
+    training_status: "approved",
+    referral_status: "pending",
+    tyfcb_status: "pending",
+    visitor_status: "approved",
+    submitted_at: "2026-06-08T02:30:00.000Z",
+    tianyi_evidence: [
+      { id: "ev-1", kind: "one_to_one", file_name: "one-to-one-proof.jpg", file_path: "demo/one-to-one-proof.jpg" },
+      { id: "ev-2", kind: "referral", file_name: "referral-proof.jpg", file_path: "demo/referral-proof.jpg" },
+      { id: "ev-3", kind: "tyfcb", file_name: "tyfcb-proof.jpg", file_path: "demo/tyfcb-proof.jpg" },
+    ],
+  },
+  {
+    id: "demo-submission-week-2",
+    member_id: "00000000-0000-4000-8000-000000000002",
+    week_id: 2,
+    week_label: "Week 2 (08/06 - 14/06)",
+    full_name: "Demo Buddy Partner",
+    email: "demo.buddy@agaventures.ai",
+    team_no: 7,
+    one_to_one: 1,
+    training: 2,
+    referrals: 1,
+    tyfcb: 3500,
+    visitors: 2,
+    visitor_joined: 1,
+    attended: true,
+    score: 67,
+    one_to_one_status: "approved",
+    training_status: "pending",
+    referral_status: "approved",
+    tyfcb_status: "pending",
+    visitor_status: "pending",
+    submitted_at: "2026-06-15T02:30:00.000Z",
+    tianyi_evidence: [
+      { id: "ev-4", kind: "training", file_name: "training-proof.jpg", file_path: "demo/training-proof.jpg" },
+      { id: "ev-5", kind: "visitor", file_name: "visitor-proof.jpg", file_path: "demo/visitor-proof.jpg" },
+    ],
+  },
+];
+
+export const DEMO_MEMBERS = [
+  { ...DEMO_MEMBER, buddy_member_id: "00000000-0000-4000-8000-000000000002", buddy: { id: "00000000-0000-4000-8000-000000000002", full_name: "Demo Buddy Partner", email: "demo.buddy@agaventures.ai" }, tianyi_buddy_teams: { team_no: 7, name: "Buddy Team 7" } },
+  {
+    id: "00000000-0000-4000-8000-000000000002",
+    full_name: "Demo Buddy Partner",
+    email: "demo.buddy@agaventures.ai",
+    company: "Partner Co",
+    buddy_member_id: DEMO_MEMBER.id,
+    buddy: { id: DEMO_MEMBER.id, full_name: DEMO_MEMBER.full_name, email: DEMO_MEMBER.email },
+    buddy_team_id: "00000000-0000-4000-8000-000000000041",
+    tianyi_buddy_teams: { team_no: 7, name: "Buddy Team 7" },
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000003",
+    full_name: "Demo Visitor Captain",
+    email: "demo.visitor@agaventures.ai",
+    company: "Visitor Studio",
+    buddy_team_id: "00000000-0000-4000-8000-000000000008",
+    tianyi_buddy_teams: { team_no: 8, name: "Buddy Team 8" },
+  },
+];
+
+export const DEMO_TEAMS = Array.from({ length: 10 }, (_, index) => ({
+  id: `demo-team-${index + 1}`,
+  team_no: index + 1,
+  name: `Buddy Team ${index + 1}`,
+}));
+
+export const DEMO_BOARD = [
+  { team_id: "demo-team-7", team_no: 7, team_name: "Buddy Team 7", members: ["Tianyi Demo Member", "Demo Buddy Partner"], total_score: 108, total_tyfcb: 15500, submission_count: 2, rank: 1 },
+  { team_id: "demo-team-8", team_no: 8, team_name: "Buddy Team 8", members: ["Demo Visitor Captain"], total_score: 72, total_tyfcb: 8200, submission_count: 1, rank: 2 },
+  { team_id: "demo-team-3", team_no: 3, team_name: "Buddy Team 3", members: ["Demo Training Lead"], total_score: 49, total_tyfcb: 1100, submission_count: 1, rank: 3 },
+];
