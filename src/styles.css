@@ -244,6 +244,11 @@ td select { min-width: 130px; }
 .member-list-card dl div { display: block; border: 0; padding: 0; }
 .member-list-card dt { font-size: 11px; }
 .member-list-card dd { margin-top: 2px; font-size: 13px; overflow-wrap: anywhere; }
+.member-view-tabs { margin-bottom: 14px; max-width: 360px; }
+.buddy-group-list { display: grid; gap: 12px; }
+.buddy-group-card { border: 1px solid var(--border); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.65); }
+.buddy-group-card h3 { margin: 0 0 12px; color: var(--orange); }
+.compact-member-card { background: #fff; }
 .submission-card-list { display: grid; gap: 10px; }
 .submission-table-wrap { display: none; }
 .submission-card { display: grid; gap: 12px; width: 100%; text-align: left; color: var(--text); border: 1px solid var(--border); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.76); }

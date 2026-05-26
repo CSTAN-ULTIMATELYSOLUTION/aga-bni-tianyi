@@ -1381,9 +1381,10 @@ function Metric({ label, value }) {
 
 function MemberManager({ onChanged, demo = false, adminToken = "" }) {
   const [members, setMembers] = useState([]);
-  const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "" });
+  const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "", phone: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [memberView, setMemberView] = useState("list");
 
   async function load() {
     if (demo) {
@@ -1405,7 +1406,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
         email: normalizeEmail(newMember.email),
       };
       setMembers((current) => [...current, member].sort((a, b) => a.full_name.localeCompare(b.full_name)));
-      setNewMember({ full_name: "", email: "", company: "" });
+      setNewMember({ full_name: "", email: "", company: "", phone: "" });
       setIsAdding(false);
       onChanged();
       return;
@@ -1415,8 +1416,9 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
       p_full_name: newMember.full_name,
       p_email: normalizeEmail(newMember.email),
       p_company: newMember.company,
+      p_phone: newMember.phone,
     });
-    setNewMember({ full_name: "", email: "", company: "" });
+    setNewMember({ full_name: "", email: "", company: "", phone: "" });
     setIsAdding(false);
     await load();
     onChanged();
@@ -1458,8 +1460,19 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredMembers = normalizedSearch
-    ? members.filter((member) => [member.full_name, member.email, member.company, member.buddy?.full_name].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch))
+    ? members.filter((member) => [member.full_name, member.email, member.phone, member.company, member.buddy?.full_name].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch))
     : members;
+  const groupedPairs = Object.values(filteredMembers.reduce((groups, member) => {
+    const key = member.buddy_team_id || `unpaired-${member.id}`;
+    groups[key] ||= {
+      id: key,
+      teamNo: member.buddy_teams?.team_no || null,
+      name: member.buddy_teams?.name || "Unpaired",
+      members: [],
+    };
+    groups[key].members.push(member);
+    return groups;
+  }, {})).sort((a, b) => (a.teamNo || 9999) - (b.teamNo || 9999));
 
   return (
     <div className="admin-content">
@@ -1467,58 +1480,63 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
         <div className="section-heading"><UsersRound /><div><h2>Member list 会员名单</h2><p>Add members and assign buddy teams.</p></div></div>
         <div className="member-toolbar">
           <Label text="Search member 搜索会员">
-            <input placeholder="Name, email, company or buddy" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <input placeholder="Name, email, phone, company or buddy" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </Label>
           <button className="primary-button" type="button" onClick={() => setIsAdding(true)}>
             <Plus /> Add 新增
           </button>
         </div>
-        <div className="table-wrap member-table-wrap">
-          <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Buddy pair</th><th>Buddy member</th><th>Action</th></tr></thead>
-            <tbody>
+        <div className="drawer-tabs member-view-tabs">
+          <button type="button" className={memberView === "list" ? "active" : ""} onClick={() => setMemberView("list")}>List</button>
+          <button type="button" className={memberView === "pairs" ? "active" : ""} onClick={() => setMemberView("pairs")}>Buddy groups</button>
+        </div>
+        {memberView === "list" ? (
+          <>
+            <div className="table-wrap member-table-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Buddy pair</th><th>Buddy member</th><th>Action</th></tr></thead>
+                <tbody>
+                  {filteredMembers.map((member) => (
+                    <tr key={member.id}>
+                      <td>{member.full_name}</td>
+                      <td>{member.email}</td>
+                      <td>{member.phone || "-"}</td>
+                      <td>{member.company || "-"}</td>
+                      <td>{member.buddy_teams?.team_no ? `Pair ${member.buddy_teams.team_no}` : "-"}</td>
+                      <td>
+                        <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
+                          <option value="">None</option>
+                          {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <button className="table-danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="member-card-list">
               {filteredMembers.map((member) => (
-                <tr key={member.id}>
-                  <td>{member.full_name}</td>
-                  <td>{member.email}</td>
-                  <td>{member.company || "-"}</td>
-                  <td>{member.buddy_teams?.team_no ? `Pair ${member.buddy_teams.team_no}` : "-"}</td>
-                  <td>
-                    <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
-                      <option value="">None</option>
-                      {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <button className="table-danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate</button>
-                  </td>
-                </tr>
+                <MemberAdminCard key={member.id} member={member} members={members} updateBuddy={updateBuddy} deactivateMember={deactivateMember} />
               ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="member-card-list">
-          {filteredMembers.map((member) => (
-            <article className="member-list-card" key={member.id}>
-              <div>
-                <strong>{member.full_name}</strong>
-                <span>{member.email}</span>
-              </div>
-              <dl>
-                <div><dt>Company 公司</dt><dd>{member.company || "-"}</dd></div>
-                <div><dt>Buddy pair 伙伴组</dt><dd>{member.buddy_teams?.team_no || "-"}</dd></div>
-                <div><dt>Buddy partner 伙伴</dt><dd>{member.buddy?.full_name || "None"}</dd></div>
-              </dl>
-              <Label text="Link buddy member 绑定伙伴会员">
-                <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
-                  <option value="">None</option>
-                  {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
-                </select>
-              </Label>
-              <button className="danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate 停用</button>
-            </article>
-          ))}
-        </div>
+            </div>
+          </>
+        ) : (
+          <div className="buddy-group-list">
+            {groupedPairs.map((group) => (
+              <article className="buddy-group-card" key={group.id}>
+                <h3>{group.teamNo ? `Buddy Pair ${group.teamNo}` : "Unpaired"}</h3>
+                <div className="member-card-list">
+                  {group.members.map((member) => (
+                    <MemberAdminCard key={member.id} member={member} members={members} updateBuddy={updateBuddy} deactivateMember={deactivateMember} compact />
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
         {filteredMembers.length === 0 && <p className="muted empty-state">No members found. 找不到会员。</p>}
       </section>
       {isAdding && (
@@ -1535,6 +1553,9 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
             <Label text="Email 电邮">
               <input type="email" value={newMember.email} onChange={(e) => setNewMember({ ...newMember, email: e.target.value })} required />
             </Label>
+            <Label text="Phone 电话">
+              <input type="tel" value={newMember.phone} onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })} />
+            </Label>
             <Label text="Company 公司">
               <input value={newMember.company} onChange={(e) => setNewMember({ ...newMember, company: e.target.value })} />
             </Label>
@@ -1546,6 +1567,30 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
         </div>
       )}
     </div>
+  );
+}
+
+function MemberAdminCard({ member, members, updateBuddy, deactivateMember, compact = false }) {
+  return (
+    <article className={compact ? "member-list-card compact-member-card" : "member-list-card"}>
+      <div>
+        <strong>{member.full_name}</strong>
+        <span>{member.email}</span>
+        {member.phone && <span>{member.phone}</span>}
+      </div>
+      <dl>
+        <div><dt>Company 公司</dt><dd>{member.company || "-"}</dd></div>
+        <div><dt>Buddy pair 伙伴组</dt><dd>{member.buddy_teams?.team_no || "-"}</dd></div>
+        <div><dt>Buddy partner 伙伴</dt><dd>{member.buddy?.full_name || "None"}</dd></div>
+      </dl>
+      <Label text="Link buddy member 绑定伙伴会员">
+        <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
+          <option value="">None</option>
+          {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
+        </select>
+      </Label>
+      <button className="danger-button" type="button" onClick={() => deactivateMember(member.id)}>Deactivate 停用</button>
+    </article>
   );
 }
 
