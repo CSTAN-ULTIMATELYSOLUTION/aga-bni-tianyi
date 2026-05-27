@@ -19,21 +19,13 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  Trash2,
   Upload,
   UserRound,
   UsersRound,
   X,
   XCircle,
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { EVIDENCE_BUCKET, supabase } from "./lib/supabase";
 import {
   DEMO_BOARD,
@@ -66,6 +58,9 @@ import "./styles.css";
 const isLocalPreview = () => ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 const ADMIN_TOKEN_KEY = "tianyi-admin-token";
+const MEMBER_ACCESS_KEY = "tianyi-member-access";
+const TYFCB_GOAL = 7000000;
+const REVIEWER_OPTIONS = ["PeiXuan", "Krision", "Alice"];
 
 function todayLabel() {
   return new Date().toLocaleDateString("en-MY", {
@@ -73,6 +68,42 @@ function todayLabel() {
     month: "short",
     year: "numeric",
   });
+}
+
+function weekCountdownParts(now = new Date()) {
+  const nextOrCurrent = WEEKS.find((week) => now.getTime() <= new Date(`${week.ends_on}T23:59:59`).getTime());
+
+  if (!nextOrCurrent) {
+    return {
+      week: null,
+      mode: "ended",
+      parts: { days: "00", hours: "00", minutes: "00", seconds: "00" },
+    };
+  }
+
+  const start = new Date(`${nextOrCurrent.starts_on}T00:00:00`);
+  const end = new Date(`${nextOrCurrent.ends_on}T23:59:59`);
+  const target = now.getTime() < start.getTime() ? start : end;
+  const diff = Math.max(0, target.getTime() - now.getTime());
+  const dayMs = 24 * 60 * 60 * 1000;
+  const hourMs = 60 * 60 * 1000;
+  const minuteMs = 60 * 1000;
+  const days = Math.floor(diff / dayMs);
+  const hours = Math.floor((diff % dayMs) / hourMs);
+  const minutes = Math.floor((diff % hourMs) / minuteMs);
+  const seconds = Math.floor((diff % minuteMs) / 1000);
+  const pad = (value) => String(value).padStart(2, "0");
+
+  return {
+    week: nextOrCurrent,
+    mode: now.getTime() < start.getTime() ? "starts" : "ends",
+    parts: {
+      days: pad(days),
+      hours: pad(hours),
+      minutes: pad(minutes),
+      seconds: pad(seconds),
+    },
+  };
 }
 
 function App() {
@@ -159,7 +190,7 @@ function FeatureBanner() {
 function FooterBanner() {
   return (
     <footer className="footer-banner">
-      <span>TIAN YI OneSystem</span>
+      <span>TIAN YI OneSystem<sup className="tm-mark">TM</sup></span>
       <a href="https://agaventures.ai" target="_blank" rel="noreferrer">
         Supported by AGA Ventures
       </a>
@@ -420,31 +451,69 @@ function CatalogPage() {
 function GamePage() {
   return (
     <Shell wide>
-      <HeroHeader eyebrow="Internal BNI Tian Yi" title="TIAN YI OneSystem" sub="Rules, leaderboard, and weekly update access for members." />
+      <HeroHeader eyebrow="Internal BNI Tian Yi" title="TIAN YI OneSystem" sub="会员每周提交入口、游戏规则与伙伴组排行榜。Weekly submission access, game rules, and buddy ranking." />
       <section className="game-layout">
-      <div className="panel stack">
-        <div className="section-heading">
-          <Medal />
-          <div>
-            <h2>游戏规则 Game logic</h2>
-            <p>Points are calculated from weekly activities and admin-verified attendance.</p>
+        <div className="game-main-stack">
+          <div className="panel stack">
+            <div className="section-heading">
+              <Medal />
+              <div>
+                <h2>游戏规则 Game Rules</h2>
+                <p>分数以会员每周提交为基础，并在管理员审核通过后计入排行榜。Points count only after weekly submissions are reviewed and approved by admin.</p>
+              </div>
+            </div>
+            <div className="score-rule-list">
+              <div>
+                <strong>1-2-1 <small>一对一</small></strong>
+                <span>每次 1 分，最多 2 分；超过 1 次需上传证明。1 point each, max 2; proof required when more than 1.</span>
+              </div>
+              <div>
+                <strong>Training <small>培训</small></strong>
+                <span>每次 5 分；超过 1 次需上传证明。5 points each; proof required when more than 1.</span>
+              </div>
+              <div>
+                <strong>Referral <small>引荐</small></strong>
+                <span>每个引荐 5 分；超过 1 个需上传证明。5 points each; proof required when more than 1.</span>
+              </div>
+              <div>
+                <strong>TYFCB <small>引荐成交额</small></strong>
+                <span>按金额分级：RM100=1、RM1k=3、RM10k=6、RM20k=9、RM30k=12；每笔需独立证明。Tiered by amount; each record needs its own proof.</span>
+              </div>
+              <div>
+                <strong>Visitor <small>访客</small></strong>
+                <span>每位访客 10 分；成功加入会员另加 25 分，由管理员确认。10 points per visitor; 25 extra when joined, admin confirmed.</span>
+              </div>
+              <div>
+                <strong>Buddy Ranking <small>伙伴组排名</small></strong>
+                <span>排行榜以两人伙伴组总分计算，不以个人排名。Leaderboard is ranked by combined buddy-pair score.</span>
+              </div>
+            </div>
+            <Link className="primary-link" to="/game/weeklyupdate">
+              <Upload /> 提交每周记录 Submit weekly update
+            </Link>
           </div>
+          <TopFiveAwardCard />
         </div>
-        <div className="score-rule-list">
-          <div><strong>1-2-1</strong><span>1 pt each, max 2</span></div>
-          <div><strong>Training</strong><span>5 pts each</span></div>
-          <div><strong>Referral</strong><span>5 pts each</span></div>
-          <div><strong>TYFCB</strong><span>1 / 3 / 6 / 9 / 12 pts by amount tier</span></div>
-          <div><strong>Visitor</strong><span>10 pts each, 25 pts when joined</span></div>
-          <div><strong>Full attendance</strong><span>3 bonus pts when activity and attendance conditions are met</span></div>
-        </div>
-        <Link className="primary-link" to="/game/weeklyupdate">
-          <Upload /> 提交每周更新 Submit weekly update
-        </Link>
-      </div>
-      <GameLeaderboard />
+        <GameLeaderboard />
       </section>
     </Shell>
+  );
+}
+
+function TopFiveAwardCard() {
+  return (
+    <section className="top-award-card">
+      <div>
+        <Award />
+        <span>Top 5 Winner Award 前五名奖励</span>
+      </div>
+      <h2>前五名伙伴组 Top 5 Buddy Pairs</h2>
+      <p>活动结束时，排行榜前五名伙伴组将获得优胜奖励。At the end of the campaign, the top 5 buddy pairs qualify for the winner award.</p>
+      <div className="award-prize-row">
+        <strong>TOP 5</strong>
+        <span>以伙伴组总分排名 Ranked by combined buddy score</span>
+      </div>
+    </section>
   );
 }
 
@@ -468,21 +537,25 @@ function GameLeaderboard() {
         <BarChart3 />
         <div>
           <h2>Leaderboard 排行榜</h2>
-          <p>Ranking is by buddy pair, not individual member.</p>
+          <p>以伙伴组总分排名，不以个人排名。Ranking is by buddy pair, not individual member.</p>
         </div>
       </div>
       <div className="leaderboard">
         {loading && <p className="muted">Loading leaderboard...</p>}
-        {rows.map((team, index) => (
-          <div className="leader-row" key={team.team_id || team.team_no || team.name}>
+        {rows.slice(0, 10).map((team, index) => {
+          const isPremium = index < 5;
+          return (
+          <div className={isPremium ? "leader-row premium-leader" : "leader-row"} key={team.team_id || team.team_no || team.name}>
             <div>
-              <em>#{index + 1}</em>
+              <span className="leader-rank">#{index + 1}</span>
               <strong>{team.name || `Team ${team.team_no}`}</strong>
-              <span>{team.member_a_name || team.member_one || "Member A"} + {team.member_b_name || team.member_two || "Member B"}</span>
+              {isPremium && <small>Top 5 Premium 高级榜</small>}
+              <span>{team.member_a_name || team.member_one || "会员 A Member A"} + {team.member_b_name || team.member_two || "会员 B Member B"}</span>
             </div>
             <b>{team.total_score || team.score || 0} pts</b>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -491,9 +564,19 @@ function GameLeaderboard() {
 function WeeklyUpdatePage() {
   const [session, setSession] = useState(null);
   const [member, setMember] = useState(null);
-  const [checkedAccess, setCheckedAccess] = useState(null);
+  const [checkedAccess, setCheckedAccess] = useState(() => loadStoredMemberAccess());
   const [demoMember] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-member") === "1");
   const [loading, setLoading] = useState(true);
+
+  const handleVerifiedAccess = (access) => {
+    storeMemberAccess(access);
+    setCheckedAccess(access);
+  };
+
+  const clearVerifiedAccess = () => {
+    sessionStorage.removeItem(MEMBER_ACCESS_KEY);
+    setCheckedAccess(null);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -520,6 +603,7 @@ function WeeklyUpdatePage() {
     return (
       <Shell>
         <HeroHeader />
+        <WeekCountdownCard />
         <WeeklyDesk member={DEMO_MEMBER} demo />
       </Shell>
     );
@@ -528,20 +612,39 @@ function WeeklyUpdatePage() {
   return (
     <Shell>
       <HeroHeader />
+      <WeekCountdownCard />
       {checkedAccess ? (
         <WeeklyDesk
           member={checkedAccess.member}
           initialWeek={checkedAccess.week}
           verifiedEmail={checkedAccess.email}
-          onExit={() => setCheckedAccess(null)}
+          onExit={clearVerifiedAccess}
         />
       ) : !session || !member ? (
-        <MemberCheckLogin onVerified={setCheckedAccess} />
+        <MemberCheckLogin onVerified={handleVerifiedAccess} />
       ) : (
         <WeeklyDesk member={member} />
       )}
     </Shell>
   );
+}
+
+function loadStoredMemberAccess() {
+  try {
+    const raw = sessionStorage.getItem(MEMBER_ACCESS_KEY);
+    if (!raw) return null;
+    const access = JSON.parse(raw);
+    if (!access?.member?.id || !access?.email || !access?.week?.id) return null;
+    return access;
+  } catch {
+    sessionStorage.removeItem(MEMBER_ACCESS_KEY);
+    return null;
+  }
+}
+
+function storeMemberAccess(access) {
+  if (!access?.member?.id || !access?.email || !access?.week?.id) return;
+  sessionStorage.setItem(MEMBER_ACCESS_KEY, JSON.stringify(access));
 }
 
 async function linkAndLoadMember(setMember) {
@@ -575,14 +678,62 @@ function HeroHeader({
         <div className="brand-mark">天</div>
         <div>
           <p>{eyebrow}</p>
-          <h1>{title}</h1>
+          <h1>{title}<sup className="tm-mark">TM</sup></h1>
         </div>
       </div>
       <div className="hero-copy">
         <p>{sub}</p>
-        <span>Today {todayLabel()}</span>
       </div>
     </header>
+  );
+}
+
+function WeekCountdownCard() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const countdown = weekCountdownParts(now);
+
+  if (!countdown.week) {
+    return (
+      <section className="week-countdown-card">
+        <p>Game countdown 活动倒数</p>
+        <h2>Game period ended 活动周期已结束</h2>
+      </section>
+    );
+  }
+
+  const actionLabel = countdown.mode === "starts" ? "starts in 即将开始" : "ends in 剩余时间";
+  const units = [
+    ["days", "Days 天"],
+    ["hours", "Hours 时"],
+    ["minutes", "Min 分"],
+    ["seconds", "Sec 秒"],
+  ];
+
+  return (
+    <section className="week-countdown-card">
+      <div className="countdown-topline">
+        <p>Game countdown 活动倒数</p>
+        <span className="today-pill">Today {todayLabel()}</span>
+      </div>
+      <div className="countdown-title">
+        <h2>{countdown.week.label}</h2>
+        <span>{actionLabel}</span>
+      </div>
+      <div className="countdown-grid" aria-label={`${countdown.week.label} ${actionLabel}`}>
+        {units.map(([key, label]) => (
+          <div key={key}>
+            <strong>{countdown.parts[key]}</strong>
+            <small>{label}</small>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -668,12 +819,16 @@ function MemberCheckLogin({ onVerified }) {
       <div className="section-heading">
         <Search />
         <div>
-          <h2>Find your member record 查找会员资料</h2>
+          <h2>Step 1: Find your member record 第一步：查找会员资料</h2>
           <p>Select the week, choose your name, and enter your registered email to start.</p>
         </div>
       </div>
 
       <form onSubmit={checkMemberPair} className="stack">
+        <div className="week-entry-note">
+          <strong>Week entry limit 周次填写限制</strong>
+          <span>Only this week and last week can be submitted. 只允许填写本周和上周的记录。</span>
+        </div>
         <div className="week-grid compact">
           {weeks.map((week) => (
             <button
@@ -727,6 +882,7 @@ function MemberCheckLogin({ onVerified }) {
         </div>
         <Label text="Registered email 注册电邮">
           <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+          <small className="field-remark">If you do not have a registered email, please contact CGC Admin. 如果没有注册电邮，请联系 CGC Admin。</small>
         </Label>
         <Button disabled={busy || membersLoading || !selectedMember || !selectedWeek}>
           {busy ? <Loader2 className="spin" /> : <ShieldCheck />}
@@ -741,6 +897,7 @@ function MemberCheckLogin({ onVerified }) {
 function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = "", onExit }) {
   const [weeks, setWeeks] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [teamTotalPoints, setTeamTotalPoints] = useState(0);
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [loading, setLoading] = useState(true);
   const memberId = member.id || member.member_id;
@@ -750,6 +907,8 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
     if (demo) {
       setWeeks(currentSubmissionWeeks());
       setSubmissions(DEMO_SUBMISSIONS.filter((item) => item.member_id === member.id));
+      const demoTeam = DEMO_BOARD.find((team) => Number(team.team_no) === Number(member.team_no || member.buddy_teams?.team_no || 7));
+      setTeamTotalPoints(Number(demoTeam?.total_score || 0));
       setLoading(false);
       return;
     }
@@ -757,12 +916,20 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
     const historyRequest = verifiedEmail
       ? supabase.rpc("member_submission_history", { p_member_id: memberId, p_email: verifiedEmail })
       : supabase.from("submission_details").select("*").eq("member_id", memberId).order("submitted_at", { ascending: false });
-    const [{ data: dbWeeks }, { data: subs }] = await Promise.all([
+    const [{ data: dbWeeks }, { data: subs }, { data: leaderboard }] = await Promise.all([
       supabase.from("weeks").select("*").in("id", available.map((week) => week.id)).order("id", { ascending: false }),
       historyRequest,
+      supabase.rpc("team_leaderboard"),
     ]);
     setWeeks(dbWeeks?.length ? dbWeeks : available);
     setSubmissions(subs || []);
+    const memberTeamNo = Number(member.team_no || member.buddy_teams?.team_no || 0);
+    const memberTeamId = member.buddy_team_id || member.team_id || "";
+    const teamRow = (leaderboard || []).find((team) =>
+      (memberTeamId && String(team.team_id) === String(memberTeamId)) ||
+      (memberTeamNo && Number(team.team_no) === memberTeamNo)
+    );
+    setTeamTotalPoints(Number(teamRow?.total_score || 0));
     setLoading(false);
   }
 
@@ -799,8 +966,8 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
         <WeeklyPreSubmitScreen
           week={initialWeek}
           submissions={submissions}
+          teamTotalPoints={teamTotalPoints}
           onStart={() => setSelectedWeek(initialWeek)}
-          onBack={onExit}
           demo={demo}
         />
       ) : !selectedWeek ? (
@@ -815,11 +982,12 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
           <div className="week-grid">
             {weeks.map((week) => {
               const submitted = !canSubmitWeek(submissions, week.id);
+              const editable = submitted && isWeekEditableWindow(week);
               return (
-                <button key={week.id} className="week-card" disabled={submitted && !demo} onClick={() => setSelectedWeek(week)}>
+                <button key={week.id} className="week-card" disabled={submitted && !editable && !demo} onClick={() => setSelectedWeek(week)}>
                   <div>
                     <strong>{week.label}</strong>
-                    <span>{submitted && !demo ? "已提交 Submitted" : "可提交 Open"}</span>
+                    <span>{submitted && editable ? "可编辑 Editable" : submitted && !demo ? "已锁定 Locked" : "可提交 Open"}</span>
                   </div>
                   {submitted ? <CheckCircle2 /> : <ChevronRight />}
                 </button>
@@ -829,77 +997,205 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
           <SubmissionHistory submissions={submissions} />
         </>
       ) : (
-        <WeeklyForm member={member} week={selectedWeek} verifiedEmail={verifiedEmail} onCancel={() => setSelectedWeek(null)} onSubmitted={load} demo={demo} />
+        <WeeklyForm
+          member={member}
+          week={selectedWeek}
+          existingSubmission={activeSubmission(submissions).find((item) => Number(item.week_id) === Number(selectedWeek.id))}
+          verifiedEmail={verifiedEmail}
+          onCancel={() => setSelectedWeek(null)}
+          onSubmitted={load}
+          demo={demo}
+        />
       )}
     </section>
   );
 }
 
-function WeeklyPreSubmitScreen({ week, submissions, onStart, onBack, demo = false }) {
+function WeeklyPreSubmitScreen({ week, submissions, teamTotalPoints = 0, onStart, demo = false }) {
   const existingSubmission = activeSubmission(submissions).find((item) => Number(item.week_id) === Number(week.id));
+  const existingEditable = Boolean(existingSubmission && isWeekEditableWindow(week));
+  const existingLocked = Boolean(existingSubmission && !existingEditable && !demo);
+  const existingStatus = existingSubmission ? submissionReviewStatus(existingSubmission) : "Open";
+  const isApproved = existingStatus === "Approved";
+  const memberPoints = activeSubmission(submissions).reduce((total, item) => total + Number(item.score || 0), 0);
+  const pairPoints = Math.max(Number(teamTotalPoints || 0), memberPoints);
+  const buddyPoints = Math.max(pairPoints - memberPoints, 0);
+  const partnerReminder = buddyPoints > 0
+    ? "Your buddy partner has record too. 伙伴也已有记录。"
+    : "Please remind your buddy partner to submit too. 也请提醒你的伙伴提交。";
 
   return (
     <>
       <section className="panel pre-submit-panel">
         <div className="section-heading">
-          {existingSubmission && !demo ? <XCircle /> : <CheckCircle2 />}
+          {existingLocked ? <XCircle /> : <CheckCircle2 />}
           <div>
             <h2>Review before submit 提交前确认</h2>
             <p>{week.label}</p>
           </div>
         </div>
 
-        {existingSubmission && !demo ? (
+        <div className="member-score-mini">
+          <div>
+            <span>Your points 你的分数</span>
+            <strong>{memberPoints}</strong>
+          </div>
+          <div>
+            <span>Buddy points 伙伴分数</span>
+            <strong>{buddyPoints}</strong>
+          </div>
+          <div>
+            <span>Total points 总分</span>
+            <strong>{pairPoints}</strong>
+          </div>
+        </div>
+
+        {existingLocked ? (
           <div className="submission-lock">
-            <strong>This week has already been submitted 本周已提交</strong>
-            <span>Members cannot enter the form again unless admin archives the previous submission.</span>
+            <strong>This week is locked 本周已锁定</strong>
+            <span>This record can no longer be edited after the week closes.</span>
             <Link to={`/game/submission/${existingSubmission.id}`} className="primary-link">
+              <Eye />
+              View submission 查看提交
+            </Link>
+          </div>
+        ) : isApproved ? (
+          <div className="submission-ready great">
+            <strong>You are Great! 你很棒！</strong>
+            <span>Your submission is approved and your score has been recorded. {partnerReminder}</span>
+            <Link to={`/game/submission/${existingSubmission.id}`} className="primary-link">
+              <Eye />
+              View approved record 查看已批准记录
+            </Link>
+          </div>
+        ) : existingSubmission ? (
+          <div className="submission-ready review">
+            <strong>Already submitted, under review 已提交，审核中</strong>
+            <span>Your score will be recorded after admin approval. {partnerReminder}</span>
+            <button type="button" className="primary-button" disabled>
+              <ClipboardCheck />
+              Submitted, waiting review 已提交，等待审核
+            </button>
+            <Link to={`/game/submission/${existingSubmission.id}`} className="ghost-button">
               <Eye />
               View submission 查看提交
             </Link>
           </div>
         ) : (
           <div className="submission-ready">
-            <strong>No active submission found 可以开始填写</strong>
-            <span>Please review your past submissions below before starting this week.</span>
+            <strong>Please input this week 请填写本周记录</strong>
+            <span>No submission has been found for this week. {partnerReminder}</span>
             <button type="button" className="primary-button" onClick={onStart}>
               <ClipboardCheck />
               Start weekly update 开始填写
             </button>
           </div>
         )}
-
-        <button type="button" className="ghost-button" onClick={onBack}>
-          Back to member check 返回会员验证
-        </button>
       </section>
-      <SubmissionHistory submissions={submissions} />
+      <SubmissionHistory submissions={submissions} currentWeek={week} onEditCurrent={onStart} />
     </>
   );
 }
 
-function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, demo = false }) {
+function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "", onCancel, onSubmitted, demo = false }) {
   const navigate = useNavigate();
-  const [form, setForm] = useState({
-    one_to_one: 0,
-    training: 0,
-    referrals: 0,
-    tyfcb: "",
-    visitors: 0,
-  });
+  const [zeroConfirm, setZeroConfirm] = useState(null);
+  const [existingEvidenceRows, setExistingEvidenceRows] = useState(() => (
+    Array.isArray(existingSubmission?.evidence) ? existingSubmission.evidence : []
+  ));
+  const existingEvidenceFor = (kind) => existingEvidenceRows.filter((file) => file.kind === kind);
+  const [form, setForm] = useState(() => ({
+    one_to_one: Number(existingSubmission?.one_to_one || 0),
+    training: Number(existingSubmission?.training || 0),
+    referrals: Number(existingSubmission?.referrals || 0),
+    visitors: Number(existingSubmission?.visitors || 0),
+  }));
+  const [tyfcbRows, setTyfcbRows] = useState(() => (
+    existingSubmission?.tyfcb
+      ? [{ id: "tyfcb-1", amount: String(existingSubmission.tyfcb), files: [], existingEvidence: existingEvidenceFor("tyfcb") }]
+      : []
+  ));
   const [files, setFiles] = useState({});
   const [busy, setBusy] = useState(false);
+  const [deletingEvidenceId, setDeletingEvidenceId] = useState("");
   const [error, setError] = useState("");
 
-  const score = calcScore(form);
+  const tyfcbTotal = tyfcbRows.reduce((total, row) => total + (Number(row.amount) || 0), 0);
+  const score = calcScore({ ...form, tyfcb: tyfcbTotal });
   const evidenceKinds = Object.keys(FIELD_META);
   const requiredEvidenceKinds = evidenceKinds.filter((kind) => {
+    if (kind === "tyfcb") return false;
     if (kind === "referral") return Number(form.referrals) > 0;
     if (kind === "visitor") return Number(form.visitors) > 0;
     return Number(form[kind]) > 0;
   });
-  const activeTyfcbTier = [30000, 20000, 10000, 1000, 100].find((amount) => Number(form.tyfcb) >= amount);
-  const hasProof = (kind) => Array.from(files[kind] || []).length > 0;
+  const hasProof = (kind) => Array.from(files[kind] || []).length > 0 || existingEvidenceFor(kind).length > 0;
+
+  async function deleteExistingEvidence(file) {
+    if (!file?.id || demo) return;
+    setError("");
+    setDeletingEvidenceId(file.id);
+    if (file.file_path && !file.file_path.startsWith("demo/")) {
+      const { error: storageDeleteError } = await supabase.storage.from(EVIDENCE_BUCKET).remove([file.file_path]);
+      if (storageDeleteError) {
+        setError(storageDeleteError.message || "Unable to delete proof image file. 无法删除证明照片文件。");
+        setDeletingEvidenceId("");
+        return;
+      }
+    }
+    const { error: deleteError } = await supabase.rpc("delete_submission_evidence", {
+      p_evidence_id: file.id,
+      p_member_id: member.id || member.member_id,
+      p_email: verifiedEmail || member.email,
+    });
+    if (deleteError) {
+      setError(deleteError.message || "Unable to delete proof image. 无法删除证明照片。");
+      setDeletingEvidenceId("");
+      return;
+    }
+    setExistingEvidenceRows((current) => current.filter((item) => item.id !== file.id));
+    setTyfcbRows((current) => current.map((row) => ({
+      ...row,
+      existingEvidence: (row.existingEvidence || []).filter((item) => item.id !== file.id),
+    })));
+    setDeletingEvidenceId("");
+  }
+
+  function updateActivityValue(kind, value) {
+    setForm((current) => {
+      if (kind === "referral") return { ...current, referrals: value };
+      return { ...current, [kind]: value };
+    });
+  }
+
+  function requestActivityValue(kind, value) {
+    const nextValue = Number(value) || 0;
+    const currentValue = kind === "referral" ? Number(form.referrals || 0) : Number(form[kind] || 0);
+    const relatedFiles = existingEvidenceFor(kind);
+    const selectedFiles = Array.from(files[kind] || []);
+    if (nextValue === 0 && currentValue > 0 && (relatedFiles.length > 0 || selectedFiles.length > 0)) {
+      setZeroConfirm({
+        kind,
+        value: nextValue,
+        label: FIELD_META[kind]?.label || kind,
+        files: relatedFiles,
+        selectedCount: selectedFiles.length,
+      });
+      return;
+    }
+    updateActivityValue(kind, nextValue);
+  }
+
+  async function confirmZeroActivity() {
+    if (!zeroConfirm) return;
+    setError("");
+    for (const file of zeroConfirm.files) {
+      await deleteExistingEvidence(file);
+    }
+    setFiles((current) => ({ ...current, [zeroConfirm.kind]: null }));
+    updateActivityValue(zeroConfirm.kind, zeroConfirm.value);
+    setZeroConfirm(null);
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -908,10 +1204,19 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
       setError("Preview mode only. Real submission requires member/email check. 预览模式不会提交。");
       return;
     }
-    const selectedFiles = Object.values(files).flatMap((list) => Array.from(list || []));
+    const tyfcbFiles = tyfcbRows.flatMap((row) => Array.from(row.files || []));
+    const selectedFiles = [...Object.values(files).flatMap((list) => Array.from(list || [])), ...tyfcbFiles];
     const invalidFile = selectedFiles.find((file) => !file.type.startsWith("image/") || file.size > MAX_EVIDENCE_BYTES);
     if (invalidFile) {
       setError("Proof photos must be images under 5MB. 证明照片必须是 5MB 以下的图片。");
+      return;
+    }
+    const invalidTyfcbRow = tyfcbRows.find((row) => {
+      const hasTyfcbProof = Boolean(row.files?.length || row.existingEvidence?.length);
+      return (Number(row.amount) > 0 && !hasTyfcbProof) || (Number(row.amount) <= 0 && row.files?.length);
+    });
+    if (invalidTyfcbRow) {
+      setError("Each TYFCB record needs both an amount and at least one proof image. 每一笔 TYFCB 都需要金额和证明照片。");
       return;
     }
     const missingProofKind = requiredEvidenceKinds.find((kind) => !hasProof(kind));
@@ -929,7 +1234,7 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
       p_one_to_one: Number(form.one_to_one) || 0,
       p_training: Number(form.training) || 0,
       p_referrals: Number(form.referrals) || 0,
-      p_tyfcb: Number(form.tyfcb) || 0,
+      p_tyfcb: tyfcbTotal,
       p_visitors: Number(form.visitors) || 0,
     };
     const { data, error: insertError } = await supabase.rpc("submit_weekly_update", payload);
@@ -953,6 +1258,20 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
           return;
         }
         evidenceRows.push({ submission_id: submission.id, kind, file_path: path, file_name: file.name });
+      }
+    }
+    for (const [rowIndex, row] of tyfcbRows.entries()) {
+      if (Number(row.amount) <= 0) continue;
+      for (const file of Array.from(row.files || [])) {
+        const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
+        const path = `${memberId}/${submission.id}/tyfcb-${rowIndex + 1}-${Date.now()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(path, file);
+        if (uploadError) {
+          setError(uploadError.message);
+          setBusy(false);
+          return;
+        }
+        evidenceRows.push({ submission_id: submission.id, kind: "tyfcb", file_path: path, file_name: `${money(row.amount)} - ${file.name}` });
       }
     }
     for (const row of evidenceRows) {
@@ -1003,34 +1322,25 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
         </div>
       </div>
 
-      <ActivitySection title="1-2-1" sub="1 pt each, max 2 每次1分" kind="one_to_one" showProof={Number(form.one_to_one) > 0} files={files} setFiles={setFiles}>
-        <ActivityStepper icon={<Handshake />} title="1-2-1" sub="1 pt each, max 2 每次1分" value={form.one_to_one} max={2} onChange={(value) => setForm({ ...form, one_to_one: value })} />
+      <ActivitySection title="1-2-1" sub="1 pt each, max 2 每次1分" kind="one_to_one" showProof={Number(form.one_to_one) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("one_to_one")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+        <ActivityStepper icon={<Handshake />} title="1-2-1" sub="1 pt each, max 2 每次1分" value={form.one_to_one} max={2} onChange={(value) => requestActivityValue("one_to_one", value)} />
       </ActivitySection>
-      <ActivitySection title="Training 培训" sub="5 pts each 每次5分" kind="training" showProof={Number(form.training) > 0} files={files} setFiles={setFiles}>
-        <ActivityStepper title="Training 培训" sub="5 pts each 每次5分" value={form.training} max={50} onChange={(value) => setForm({ ...form, training: value })} />
+      <ActivitySection title="Training 培训" sub="5 pts each 每次5分" kind="training" showProof={Number(form.training) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("training")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+        <ActivityStepper title="Training 培训" sub="5 pts each 每次5分" value={form.training} max={50} onChange={(value) => requestActivityValue("training", value)} />
       </ActivitySection>
-      <ActivitySection title="Referral 引荐" sub="5 pts each 每个5分" kind="referral" showProof={Number(form.referrals) > 0} files={files} setFiles={setFiles}>
-        <ActivityStepper title="Referral 引荐" sub="5 pts each 每个5分" value={form.referrals} max={50} onChange={(value) => setForm({ ...form, referrals: value })} />
+      <ActivitySection title="Referral 引荐" sub="5 pts each 每个5分" kind="referral" showProof={Number(form.referrals) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("referral")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+        <ActivityStepper title="Referral 引荐" sub="5 pts each 每个5分" value={form.referrals} max={50} onChange={(value) => requestActivityValue("referral", value)} />
       </ActivitySection>
-      <ActivitySection title="TYFCB 引荐成交额" sub="Upload proof when amount is entered 输入金额后需上传证明" kind="tyfcb" showProof={Number(form.tyfcb) > 0} files={files} setFiles={setFiles}>
-        <Label text="TYFCB 引荐成交额 RM">
-          <input type="number" min="0" value={form.tyfcb} onChange={(e) => setForm({ ...form, tyfcb: e.target.value })} placeholder="5000" />
-        </Label>
-        <div className="tier-row">
-          {[100, 1000, 10000, 20000, 30000].map((amount) => (
-            <span key={amount} className={activeTyfcbTier === amount ? "active" : ""}>
-              RM{amount >= 1000 ? `${amount / 1000}k` : amount}
-            </span>
-          ))}
-          <strong>{tierPoints(Number(form.tyfcb) || 0)} pts</strong>
+      <section className="activity-section">
+        <div>
+          <strong>TYFCB 引荐成交额</strong>
+          <span>Each amount requires its own proof image 每笔金额需上传对应证明</span>
         </div>
+        <TyfcbRecordList rows={tyfcbRows} onChange={setTyfcbRows} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId} />
+      </section>
+      <ActivitySection title="Visitor 访客" sub="10 pts each 每位10分" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("visitor")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+        <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => requestActivityValue("visitor", value)} />
       </ActivitySection>
-      <ActivitySection title="Visitor 访客" sub="10 pts each 每位10分" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles}>
-        <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => setForm({ ...form, visitors: value })} />
-      </ActivitySection>
-      <div className="notice">
-        出席与访客加入由管理员确认。Attendance and visitor joined are confirmed by admin.
-      </div>
 
       {error && <p className="error">{error}</p>}
       <div className="button-row">
@@ -1042,13 +1352,50 @@ function WeeklyForm({ member, week, verifiedEmail = "", onCancel, onSubmitted, d
           Submit 提交
         </Button>
       </div>
+      {zeroConfirm && (
+        <ZeroActivityConfirm
+          item={zeroConfirm}
+          busy={Boolean(deletingEvidenceId)}
+          onCancel={() => setZeroConfirm(null)}
+          onConfirm={confirmZeroActivity}
+        />
+      )}
     </form>
   );
 }
 
-function ActivitySection({ title, sub, kind, showProof, files, setFiles, children }) {
+function ZeroActivityConfirm({ item, busy, onCancel, onConfirm }) {
+  const totalFiles = Number(item.files?.length || 0) + Number(item.selectedCount || 0);
+  return createPortal(
+    <div className="detail-backdrop" role="dialog" aria-modal="true">
+      <section className="detail-panel proof-delete-warning">
+        <button className="icon-button detail-close" type="button" onClick={onCancel} aria-label="Cancel proof delete warning">
+          <X />
+        </button>
+        <p>Confirm change 确认更改</p>
+        <h2>Set {item.label} to 0?</h2>
+        <div className="confirm-box reject">
+          <strong>This will delete {totalFiles} proof image(s). 这会删除 {totalFiles} 张证明照片。</strong>
+          <span>If the activity is reduced to 0, the uploaded proof images for this section are no longer needed and will be removed.</span>
+        </div>
+        <div className="button-row">
+          <button className="ghost-button" type="button" onClick={onCancel}>Cancel 取消</button>
+          <button className="danger-button" type="button" disabled={busy} onClick={onConfirm}>
+            {busy ? <Loader2 className="spin" /> : <Trash2 />}
+            Confirm delete 确认删除
+          </button>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function ActivitySection({ title, sub, kind, showProof, files, setFiles, existingEvidence = [], onDeleteEvidence, deletingEvidenceId = "", children }) {
   const selectedFiles = Array.from(files[kind] || []);
   const selectedCount = selectedFiles.length;
+  const existingCount = existingEvidence.length;
+  const proofCount = selectedCount + existingCount;
   const [previewFile, setPreviewFile] = useState(null);
   const inputId = `${kind}-proof-input`;
   const clearFiles = () => setFiles({ ...files, [kind]: null });
@@ -1068,7 +1415,7 @@ function ActivitySection({ title, sub, kind, showProof, files, setFiles, childre
       </div>
       {children}
       {showProof && (
-        <div className={selectedCount ? "inline-proof ready" : "inline-proof"}>
+        <div className={proofCount ? "inline-proof ready" : "inline-proof"}>
           <div>
             <span className="proof-label">{FIELD_META[kind].label} proof image 证明照片</span>
             <input
@@ -1081,10 +1428,11 @@ function ActivitySection({ title, sub, kind, showProof, files, setFiles, childre
               onChange={(e) => addFiles(e.target.files)}
             />
             <label className="upload-file-button" htmlFor={inputId}>
-              <Upload /> {selectedCount ? "Add more images 继续上传" : "Upload file 上传照片"}
+              <Upload /> {proofCount ? "Add more images 继续上传" : "Upload file 上传照片"}
             </label>
           </div>
-          <small>{selectedCount ? `${selectedCount} image(s) selected, ready to submit 已上传，可提交` : "Required before submit 提交前必须上传"}</small>
+          <small>{proofCount ? `${proofCount} proof image(s) saved 已有证明照片` : "Required before submit 提交前必须上传"}</small>
+          <ExistingProofList evidence={existingEvidence} onDelete={onDeleteEvidence} deletingEvidenceId={deletingEvidenceId} />
           {selectedCount > 0 && (
             <div className="proof-file-list">
               {selectedFiles.map((file, index) => (
@@ -1104,6 +1452,189 @@ function ActivitySection({ title, sub, kind, showProof, files, setFiles, childre
       )}
       {previewFile && <ProofPreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
     </section>
+  );
+}
+
+function ExistingProofList({ evidence = [], onDelete, deletingEvidenceId = "" }) {
+  if (!evidence.length) return null;
+  return (
+    <div className="existing-proof-grid">
+      {evidence.map((file) => (
+        <ExistingProofCard
+          file={file}
+          key={file.id || file.file_path}
+          onDelete={onDelete}
+          deleting={deletingEvidenceId === file.id}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ExistingProofCard({ file, onDelete, deleting = false }) {
+  const [url, setUrl] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!file.file_path || file.file_path.startsWith("demo/")) {
+      setUrl("");
+      return;
+    }
+    let mounted = true;
+    supabase.storage
+      .from(EVIDENCE_BUCKET)
+      .createSignedUrl(file.file_path, 3600)
+      .then(({ data }) => {
+        if (mounted) setUrl(data?.signedUrl || "");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [file.file_path]);
+
+  if (file.file_path?.startsWith("demo/")) {
+    return (
+      <div className="existing-proof-card">
+        <FileImage />
+        <span>{file.file_name || "Saved proof image 已保存证明"}</span>
+        <div className="existing-proof-actions">
+          <button type="button" onClick={() => setPreviewOpen(true)}><Eye /> View 查看</button>
+          {onDelete && <button type="button" onClick={() => onDelete(file)} disabled={deleting}><Trash2 /> Delete 删除</button>}
+        </div>
+        {previewOpen && <ExistingProofPreview file={file} url={url} onClose={() => setPreviewOpen(false)} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="existing-proof-card">
+      {url ? <img src={url} alt={file.file_name || "Saved proof image"} /> : <FileImage />}
+      <span>{file.file_name || "Saved proof image 已保存证明"}</span>
+      <div className="existing-proof-actions">
+        <button type="button" onClick={() => setPreviewOpen(true)} disabled={!url}><Eye /> View 查看</button>
+        {onDelete && <button type="button" onClick={() => onDelete(file)} disabled={deleting}><Trash2 /> {deleting ? "Deleting 删除中" : "Delete 删除"}</button>}
+      </div>
+      {previewOpen && <ExistingProofPreview file={file} url={url} onClose={() => setPreviewOpen(false)} />}
+    </div>
+  );
+}
+
+function ExistingProofPreview({ file, url, onClose }) {
+  return createPortal(
+    <div className="detail-backdrop" role="dialog" aria-modal="true">
+      <section className="detail-panel proof-preview-modal">
+        <button className="icon-button detail-close" type="button" onClick={onClose} aria-label="Close proof preview">
+          <X />
+        </button>
+        <p>Saved proof image 已保存证明照片</p>
+        <h2>{file.file_name || "Proof image"}</h2>
+        {url ? <img src={url} alt={file.file_name || "Proof image"} /> : <FileImage />}
+        <button className="primary-button" type="button" onClick={onClose}>
+          Close 关闭
+        </button>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function TyfcbRecordList({ rows, onChange, onDeleteEvidence, deletingEvidenceId = "" }) {
+  const [previewFile, setPreviewFile] = useState(null);
+  const updateRow = (id, next) => onChange(rows.map((row) => row.id === id ? { ...row, ...next } : row));
+  const addRow = () => onChange([...rows, { id: `tyfcb-${Date.now()}`, amount: "", files: [] }]);
+  const removeRow = (id) => onChange(rows.filter((row) => row.id !== id));
+  const addFiles = (id, fileList) => {
+    const row = rows.find((item) => item.id === id);
+    updateRow(id, { files: [...(row?.files || []), ...Array.from(fileList || [])] });
+  };
+  const removeFile = (id, indexToRemove) => {
+    const row = rows.find((item) => item.id === id);
+    updateRow(id, { files: (row?.files || []).filter((_file, index) => index !== indexToRemove) });
+  };
+
+  return (
+    <div className="tyfcb-record-list">
+      {rows.map((row, rowIndex) => {
+        const selectedFiles = Array.from(row.files || []);
+        const existingEvidence = Array.isArray(row.existingEvidence) ? row.existingEvidence : [];
+        const proofCount = selectedFiles.length + existingEvidence.length;
+        const ready = Number(row.amount) > 0 && proofCount > 0;
+        const inputId = `${row.id}-proof-input`;
+        return (
+          <article className={ready ? "tyfcb-record ready" : "tyfcb-record"} key={row.id}>
+            <div className="tyfcb-record-head">
+              <strong>Record {rowIndex + 1} 记录{rowIndex + 1}</strong>
+              <button type="button" onClick={() => removeRow(row.id)}>Remove 删除</button>
+            </div>
+            <Label text="Amount 金额">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={row.amount}
+                onChange={(event) => updateRow(row.id, { amount: event.target.value })}
+                placeholder="5000.00"
+              />
+            </Label>
+            <TyfcbTierRow amount={Number(row.amount) || 0} />
+            <div className={ready ? "inline-proof ready" : "inline-proof"}>
+              <span className="proof-label">TYFCB proof image 证明照片</span>
+              <input
+                id={inputId}
+                className="visually-hidden-file"
+                key={`${row.id}-${selectedFiles.length}`}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) => addFiles(row.id, event.target.files)}
+              />
+              <label className="upload-file-button" htmlFor={inputId}>
+                <Upload /> {proofCount ? "Add more images 继续上传" : "Upload file 上传照片"}
+              </label>
+              <small>{ready ? `${proofCount} proof image(s) saved 已有证明照片` : "Amount and proof are required 金额和证明都必填"}</small>
+              <ExistingProofList evidence={existingEvidence} onDelete={onDeleteEvidence} deletingEvidenceId={deletingEvidenceId} />
+              {selectedFiles.length > 0 && (
+                <div className="proof-file-list">
+                  {selectedFiles.map((file, fileIndex) => (
+                    <div className="proof-file-row" key={`${file.name}-${file.size}-${fileIndex}`}>
+                      <FileImage />
+                      <span>{file.name}</span>
+                      <button className="proof-view-button" type="button" onClick={() => setPreviewFile(file)}>View</button>
+                      <button className="proof-cancel-button" type="button" onClick={() => removeFile(row.id, fileIndex)}>Cancel</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </article>
+        );
+      })}
+      <button className="ghost-button tyfcb-add-button" type="button" onClick={addRow}>
+        <Plus /> Add TYFCB record 新增成交记录
+      </button>
+      {previewFile && <ProofPreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+    </div>
+  );
+}
+
+function TyfcbTierRow({ amount }) {
+  const activeTier = [30000, 20000, 10000, 1000, 100].find((tierAmount) => amount >= tierAmount);
+
+  return (
+    <div className="tyfcb-tier-panel">
+      <div className="tyfcb-tier-summary">
+        <span>Amount 金额</span>
+        <strong>{money(amount)}</strong>
+        <em>{tierPoints(amount)} pts</em>
+      </div>
+      <div className="tier-row" aria-label="TYFCB amount tier">
+        {[100, 1000, 10000, 20000, 30000].map((tierAmount) => (
+          <span key={tierAmount} className={activeTier === tierAmount ? "active" : ""}>
+            {money(tierAmount)}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1149,28 +1680,376 @@ function ActivityStepper({ title, sub, value, max, onChange, icon }) {
   );
 }
 
-function SubmissionHistory({ submissions }) {
+function SubmissionHistory({ submissions, currentWeek = null, onEditCurrent = null }) {
+  const [selected, setSelected] = useState(null);
+  const currentSubmission = currentWeek
+    ? activeSubmission(submissions).find((item) => Number(item.week_id) === Number(currentWeek.id))
+    : null;
+  void currentSubmission;
+  const rows = submissions;
+
   return (
     <section className="panel compact">
       <div className="section-heading small">
         <Award />
         <div>
           <h2>Your submissions 你的提交</h2>
-          <p>{submissions.length} records 记录</p>
+          <p>{rows.length} records 记录</p>
         </div>
       </div>
       <div className="history-list">
-        {submissions.length === 0 && <p className="muted">No submissions yet. 暂无提交。</p>}
-        {submissions.map((item) => (
-          <Link to={`/game/submission/${item.id}`} className="history-row" key={item.id}>
-            <div>
-              <strong>{item.week_label}</strong>
-              <span>{new Date(item.submitted_at).toLocaleString()}</span>
+        {rows.length === 0 && <p className="muted">No submissions yet. 暂无提交。</p>}
+        {rows.map((item) => {
+          const content = (
+            <>
+              <div>
+                <strong>{item.week_label}</strong>
+                <span>{item.status_label || new Date(item.submitted_at).toLocaleString()}</span>
+              </div>
+              <div className="history-row-side">
+                <span className={`status-tag ${statusTagClass(item)}`}>{submissionStatusLabel(item)}</span>
+                <b>{recordedScore(item)} pts</b>
+              </div>
+            </>
+          );
+
+          return (
+            <button
+              className={item.isPlaceholder ? "history-row current-record" : "history-row"}
+              key={item.id}
+              type="button"
+              onClick={() => setSelected(item)}
+            >
+              {content}
+            </button>
+          );
+        })}
+      </div>
+      {selected && (
+        <SubmissionHistorySheet
+          item={selected}
+          currentWeek={currentWeek}
+          onClose={() => setSelected(null)}
+          onEditCurrent={onEditCurrent}
+        />
+      )}
+    </section>
+  );
+}
+
+function recordedScore(item) {
+  if (item.isPlaceholder) return 0;
+  return Number(item.score || 0);
+}
+
+function submissionStatusLabel(item) {
+  if (item.isPlaceholder) return "Open 可填写";
+  const status = submissionReviewStatus(item);
+  if (status === "Approved") return "Approved 已批准";
+  if (status === "Rejected") return "Rejected 已拒绝";
+  if (status === "Archived") return "Archived 已归档";
+  return "Submitted 已提交";
+}
+
+function statusTagClass(item) {
+  const status = item.isPlaceholder ? "open" : submissionReviewStatus(item).toLowerCase();
+  return `status-${status}`;
+}
+
+function isWeekEditableWindow(week) {
+  if (!week?.ends_on) return false;
+  const lockDate = new Date(`${week.ends_on}T23:59:59`);
+  lockDate.setDate(lockDate.getDate() + 14);
+  return new Date() <= lockDate;
+}
+
+function isWithinWeek(item, currentWeek) {
+  const startsOn = item.starts_on || currentWeek?.starts_on;
+  const endsOn = item.ends_on || currentWeek?.ends_on;
+  if (!startsOn || !endsOn) return false;
+  void startsOn;
+  return isWeekEditableWindow({ ends_on: endsOn });
+}
+
+function SubmissionHistorySheet({ item, currentWeek, onClose, onEditCurrent }) {
+  const canOpenCurrent = Number(item.week_id) === Number(currentWeek?.id);
+  const editableThisWeek = isWithinWeek(item, currentWeek);
+  const canEditCurrent = canOpenCurrent && editableThisWeek;
+  const sectionStatus = (value, status) => (Number(value || 0) <= 0 ? "auto-approved" : status);
+  const details = [
+    { label: "1-2-1", value: item.one_to_one || 0, points: Math.min(Number(item.one_to_one || 0), 2), status: sectionStatus(item.one_to_one, item.one_to_one_status) },
+    { label: "Training 培训", value: item.training || 0, points: Number(item.training || 0) * 5, status: sectionStatus(item.training, item.training_status) },
+    { label: "Referral 引荐", value: item.referrals || 0, points: Number(item.referrals || 0) * 5, status: sectionStatus(item.referrals, item.referral_status) },
+    { label: "TYFCB", value: money(item.tyfcb || 0), points: tierPoints(Number(item.tyfcb || 0)), status: sectionStatus(item.tyfcb, item.tyfcb_status) },
+    { label: "Visitor 访客", value: item.visitors || 0, points: Number(item.visitors || 0) * 10, status: sectionStatus(item.visitors, item.visitor_status) },
+  ];
+  const expectedScore = details.reduce((total, detail) => total + Number(detail.points || 0), 0);
+
+  return createPortal(
+    <div className="sheet-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+      <section className="bottom-sheet" onClick={(event) => event.stopPropagation()}>
+        <button className="sheet-handle" type="button" onClick={onClose} aria-label="Close record" />
+        <div className="sheet-title-row">
+          <div>
+            <p>Submission record 提交记录</p>
+            <h2>{item.week_label}</h2>
+          </div>
+          <div className="sheet-tag-stack">
+            <span className={`status-tag ${statusTagClass(item)}`}>{submissionStatusLabel(item)}</span>
+            <span className={editableThisWeek ? "status-tag status-open" : "status-tag status-archived"}>
+              {editableThisWeek ? "Editable 可编辑" : "View only 仅查看"}
+            </span>
+          </div>
+        </div>
+        <div className="sheet-score-row">
+          <div>
+            <span>Recorded score 已记录分数</span>
+            <strong>{recordedScore(item)} pts</strong>
+          </div>
+          <div>
+            <span>Expected score 预计分数</span>
+            <strong>{expectedScore} pts</strong>
+          </div>
+        </div>
+        <div className="sheet-detail-list">
+          {details.map((detail) => (
+            <div key={detail.label}>
+              <span>{detail.label}</span>
+              <strong>{detail.value} <small>| {detail.points} pts</small></strong>
+              {detail.status && <em className={`status-dot status-${detail.status}`}>{detail.status}</em>}
             </div>
-            <b>{item.score} pts</b>
+          ))}
+        </div>
+        {canOpenCurrent && (
+          <button className="primary-button" type="button" onClick={() => {
+            onClose();
+            if (canEditCurrent) onEditCurrent?.();
+          }} disabled={!canEditCurrent}>
+            <ClipboardCheck />
+            {canEditCurrent ? "Edit current record 编辑本周记录" : "Current record locked 本周记录已锁定"}
+          </button>
+        )}
+        {!item.isPlaceholder && (
+          <Link className="ghost-button" to={`/game/submission/${item.id}`}>
+            <Eye />
+            View full receipt 查看详情
           </Link>
+        )}
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function receiptReviewStatus(submission, statusField, rawValue) {
+  if (Number(rawValue || 0) <= 0) return "auto-approved";
+  return submission[statusField] || (submission.status === "archived" ? "archived" : "recorded");
+}
+
+function receiptApprovedPoints(submission, statusField, potentialPoints) {
+  const status = submission[statusField];
+  if (!status) return potentialPoints;
+  return status === "approved" ? potentialPoints : 0;
+}
+
+function receiptScoreRows(submission) {
+  const activityRows = [
+    {
+      label: "1-2-1",
+      value: submission.one_to_one || 0,
+      rawValue: Number(submission.one_to_one || 0),
+      statusField: "one_to_one_status",
+      potentialPoints: Math.min(Number(submission.one_to_one || 0), 2),
+    },
+    {
+      label: "Training 培训",
+      value: submission.training || 0,
+      rawValue: Number(submission.training || 0),
+      statusField: "training_status",
+      potentialPoints: Number(submission.training || 0) * 5,
+    },
+    {
+      label: "Referral 引荐",
+      value: submission.referrals || 0,
+      rawValue: Number(submission.referrals || 0),
+      statusField: "referral_status",
+      potentialPoints: Number(submission.referrals || 0) * 5,
+    },
+    {
+      label: "TYFCB",
+      value: money(submission.tyfcb),
+      rawValue: Number(submission.tyfcb || 0),
+      statusField: "tyfcb_status",
+      potentialPoints: tierPoints(Number(submission.tyfcb || 0)),
+    },
+    {
+      label: "Visitor 访客",
+      value: `${submission.visitors || 0} visitor(s) · joined ${submission.visitor_joined || 0}`,
+      rawValue: Number(submission.visitors || 0),
+      statusField: "visitor_status",
+      potentialPoints: (Number(submission.visitors || 0) * 10) + (Number(submission.visitor_joined || 0) * 25),
+    },
+  ].map((row) => ({
+    ...row,
+    status: receiptReviewStatus(submission, row.statusField, row.rawValue),
+    points: receiptApprovedPoints(submission, row.statusField, row.potentialPoints),
+  }));
+
+  const bonusRows = [
+    {
+      label: "Monthly all-five bonus 每月五项加分",
+      value: "System bonus",
+      status: Number(submission.monthly_completion_bonus_points || 0) > 0 ? "approved" : "recorded",
+      points: Number(submission.monthly_completion_bonus_points || 0),
+    },
+    {
+      label: "Admin add-on 管理员加分",
+      value: submission.admin_bonus_note || "Manual adjustment",
+      status: Number(submission.admin_bonus_points || 0) > 0 ? "approved" : "recorded",
+      points: Number(submission.admin_bonus_points || 0),
+    },
+  ].filter((row) => row.points > 0 || row.value !== "System bonus");
+
+  const subtotal = [...activityRows, ...bonusRows].reduce((total, row) => total + Number(row.points || 0), 0);
+  const remaining = Number(submission.score || 0) - subtotal;
+  const adjustmentRows = remaining !== 0
+    ? [{
+        label: "Other recorded adjustment 其他已记录调整",
+        value: "From saved score",
+        status: "recorded",
+        points: remaining,
+      }]
+    : [];
+
+  return [...activityRows, ...bonusRows, ...adjustmentRows];
+}
+
+function approvalAdminLabel(submission) {
+  if (submission.approved_by) return submission.approved_by;
+  if (submission.reviewer_owner) return submission.reviewer_owner;
+  return "Pending admin approval 待管理员批准";
+}
+
+function receiptOverallStatus(scoreRows, submission) {
+  if (submission.status === "archived") {
+    return {
+      tone: "archived",
+      label: "Archived 已归档",
+      value: "This submission was archived 此提交已归档",
+      detail: "",
+    };
+  }
+  const submittedRows = scoreRows.filter((row) => row.rawValue === undefined || Number(row.rawValue || 0) > 0);
+  const rejectedRows = submittedRows.filter((row) => row.status === "rejected");
+  const pendingRows = submittedRows.filter((row) => row.status === "pending");
+  const approvedRows = submittedRows.filter((row) => row.status === "approved");
+
+  if (rejectedRows.length > 0) {
+    return {
+      tone: "rejected",
+      label: "Rejected by 拒绝管理员",
+      value: approvalAdminLabel(submission),
+      detail: `${rejectedRows.length} rejected section(s) 已拒绝项目`,
+    };
+  }
+  if (pendingRows.length > 0) {
+    return {
+      tone: "pending",
+      label: "Pending approval 待审核",
+      value: submission.reviewer_owner || "Waiting for admin review 等待管理员审核",
+      detail: `${pendingRows.length} pending section(s) 待审核项目`,
+    };
+  }
+  if (approvedRows.length > 0) {
+    return {
+      tone: "approved",
+      label: "Approved by 批准管理员",
+      value: approvalAdminLabel(submission),
+      detail: `${approvedRows.length} approved section(s) 已批准项目`,
+    };
+  }
+  return {
+    tone: "approved",
+    label: "Auto-approved 自动通过",
+    value: "No submitted activity 无提交项目",
+    detail: "",
+  };
+}
+
+function receiptFiveSectionRecords(submission) {
+  return [
+    { label: "1-2-1", value: submission.one_to_one || 0 },
+    { label: "Training 培训", value: submission.training || 0 },
+    { label: "Referral 引荐", value: submission.referrals || 0 },
+    { label: "TYFCB 引荐成交额", value: money(submission.tyfcb) },
+    { label: "Visitor 访客", value: submission.visitors || 0 },
+  ];
+}
+
+function SubmissionReceiptCard({ submission }) {
+  const scoreRows = receiptScoreRows(submission);
+  const scoreTotal = scoreRows.reduce((total, row) => total + Number(row.points || 0), 0);
+  const approvalStatus = receiptOverallStatus(scoreRows, submission);
+  const submittedRecords = receiptFiveSectionRecords(submission);
+
+  return (
+    <section className="panel receipt">
+      <div className="receipt-top-row">
+        <Link to="/game/weeklyupdate" className="receipt-back-link" aria-label="Back to member dashboard">
+          <ChevronRight />
+          <span>Member dashboard</span>
+          <small>返回会员面板</small>
+        </Link>
+        <CheckCircle2 className="receipt-icon" />
+      </div>
+      <p>Successful submit 提交成功</p>
+      <h2>{submission.week_label}</h2>
+      <p className="muted">This read-only page is available from your confirmation email link.</p>
+      {submission.status === "archived" && (
+        <div className="notice">
+          此提交已归档，可重新提交。This submission was archived; please submit again.
+          <Link to="/game/weeklyupdate"> 前往提交 Go to weekly update</Link>
+        </div>
+      )}
+      <div className={`receipt-approval ${approvalStatus.tone}`}>
+        <span>{approvalStatus.label}</span>
+        <strong>{approvalStatus.value}</strong>
+        {approvalStatus.detail && <small>{approvalStatus.detail}</small>}
+      </div>
+      <div className="score-badge large">
+        <strong>{submission.score}</strong>
+        <span>pts 分</span>
+      </div>
+      <div className="receipt-score-breakdown">
+        <div className="receipt-breakdown-head">
+          <strong>Score breakdown 分数明细</strong>
+          <span>{scoreTotal} pts</span>
+        </div>
+        {scoreRows.map((row) => (
+          <div className="receipt-score-row" key={row.label}>
+            <div>
+              <strong>{row.label}</strong>
+              <span>{row.value}</span>
+            </div>
+            <em className={`status-dot status-${row.status}`}>{row.status}</em>
+            <b>{row.points} pts</b>
+          </div>
         ))}
       </div>
+      <section className="receipt-record-summary">
+        <div className="receipt-record-head">
+          <span>Member 会员</span>
+          <strong>{submission.full_name}</strong>
+        </div>
+        <div className="receipt-record-grid" aria-label="Five section submitted records 五项提交记录">
+          {submittedRecords.map((record) => (
+            <div key={record.label}>
+              <span>{record.label}</span>
+              <strong>{record.value}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }
@@ -1205,32 +2084,7 @@ function SubmissionReceipt() {
           <p className="muted">Please open this link after logging in with the same member email.</p>
         </section>
       ) : (
-        <section className="panel receipt">
-          <CheckCircle2 className="receipt-icon" />
-          <p>Successful submit 提交成功</p>
-          <h2>{submission.week_label}</h2>
-          <p className="muted">This read-only page is available from your confirmation email link.</p>
-          {submission.status === "archived" && (
-            <div className="notice">
-              此提交已归档，可重新提交。This submission was archived; please submit again.
-              <Link to="/game/weeklyupdate"> 前往提交 Go to weekly update</Link>
-            </div>
-          )}
-          <div className="score-badge large">
-            <strong>{submission.score}</strong>
-            <span>pts 分</span>
-          </div>
-          <dl>
-            <div><dt>Member 会员</dt><dd>{submission.full_name}</dd></div>
-            <div><dt>Buddy team 伙伴组</dt><dd>{submission.team_no || "-"}</dd></div>
-            <div><dt>1-2-1</dt><dd>{submission.one_to_one}</dd></div>
-            <div><dt>Training 培训</dt><dd>{submission.training}</dd></div>
-            <div><dt>Referral 引荐</dt><dd>{submission.referrals}</dd></div>
-            <div><dt>TYFCB</dt><dd>{money(submission.tyfcb)}</dd></div>
-            <div><dt>Visitor 访客</dt><dd>{submission.visitors}</dd></div>
-            <div><dt>Attendance 出席</dt><dd>{submission.attended ? "Yes 是" : "No 否"}</dd></div>
-          </dl>
-        </section>
+        <SubmissionReceiptCard submission={submission} />
       )}
     </Shell>
   );
@@ -1273,6 +2127,7 @@ function AdminPortal() {
           <div>
             <p>Admin portal 管理后台</p>
             <h1>Tianyi Game</h1>
+            <span>TIAN YI OneSystem control center</span>
           </div>
         </Link>
         {(adminSession || demoAdmin) && (
@@ -1376,13 +2231,8 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
   const tabs = [
     ["dashboard", "Dashboard 仪表板", BarChart3],
     ["members", "Member 会员", UsersRound],
-    ["submissions", "5 Game Input 五项输入", ClipboardCheck],
-    ["one_to_one", "1-2-1 Verify", Handshake],
-    ["training", "Training 培训", Award],
-    ["referral", "Referral 引荐", Medal],
-    ["tyfcb", "TYFCB", FileImage],
-    ["visitor", "Visitor 访客", UserRound],
-    ["attendance", "Attendance 出席", CheckCircle2],
+    ["submissions", "Submissions 提交", ClipboardCheck],
+    ["logs", "Logs 记录", FileImage],
   ];
 
   useEffect(() => {
@@ -1407,8 +2257,7 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
         {tab === "dashboard" && <Dashboard refreshKey={refreshKey} demo={demo} adminToken={adminToken} />}
         {tab === "members" && <MemberManager onChanged={() => setRefreshKey((v) => v + 1)} demo={demo} adminToken={adminToken} />}
         {tab === "submissions" && <SubmissionReview demo={demo} adminToken={adminToken} />}
-        {["one_to_one", "training", "referral", "tyfcb", "visitor"].includes(tab) && <VerificationQueue kind={tab} demo={demo} adminToken={adminToken} />}
-        {tab === "attendance" && <AttendanceList demo={demo} adminToken={adminToken} />}
+        {tab === "logs" && <ActionLogs demo={demo} adminToken={adminToken} />}
       </section>
       {showAd && <AgaAdPopup onClose={() => setShowAd(false)} />}
     </>
@@ -1417,10 +2266,10 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
 
 function AgaAdPopup({ onClose }) {
   const features = [
-    "AI websites AI 网站",
-    "Business portals 企业系统",
-    "Automation workflows 自动化流程",
-    "CRM dashboards 客户管理仪表板",
+    { title: "AI websites", zh: "AI 网站" },
+    { title: "Business portals", zh: "企业系统" },
+    { title: "Automation workflows", zh: "自动化流程" },
+    { title: "CRM dashboards", zh: "客户管理仪表板" },
   ];
   return (
     <div className="aga-ad-backdrop" role="dialog" aria-modal="true">
@@ -1428,17 +2277,28 @@ function AgaAdPopup({ onClose }) {
         <button className="icon-button detail-close" onClick={onClose} aria-label="Close AGA showcase">
           <X />
         </button>
-        <div className="aga-ad-brand">
-          <span>AGA VENTURES SDN BHD</span>
-          <h2>Build faster business systems 打造更快的企业系统</h2>
-          <p>Custom websites, portals, dashboards, automation, and AI tools for growing teams.</p>
+        <div className="aga-ad-hero">
+          <div className="aga-ad-mark">AGA</div>
+          <div>
+            <span>AGA VENTURES SDN BHD</span>
+            <h2>Build faster business systems</h2>
+            <p>打造更快的企业系统</p>
+          </div>
         </div>
-        <div className="aga-ad-grid">
-          {features.map((feature) => <strong key={feature}>{feature}</strong>)}
+        <div className="aga-ad-content">
+          <p>Custom websites, secure portals, dashboards, automation, and AI tools for growing teams.</p>
+          <div className="aga-ad-grid">
+            {features.map((feature) => (
+              <strong key={feature.title}>
+                <span>{feature.title}</span>
+                <small>{feature.zh}</small>
+              </strong>
+            ))}
+          </div>
+          <a className="aga-ad-link" href="https://agaventures.ai" target="_blank" rel="noreferrer">
+            Visit agaventures.ai
+          </a>
         </div>
-        <a className="aga-ad-link" href="https://agaventures.ai" target="_blank" rel="noreferrer">
-          Visit agaventures.ai
-        </a>
       </section>
     </div>
   );
@@ -1447,6 +2307,8 @@ function AgaAdPopup({ onClose }) {
 function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
   const [board, setBoard] = useState([]);
   const [stats, setStats] = useState({ members: 0, submissions: 0, tyfcb: 0 });
+  const tyfcbTotal = Number(stats.tyfcb || 0);
+  const tyfcbProgress = TYFCB_GOAL ? Math.min(100, Math.round((tyfcbTotal / TYFCB_GOAL) * 100)) : 0;
 
   useEffect(() => {
     if (demo) {
@@ -1464,49 +2326,77 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
     });
   }, [refreshKey, demo, adminToken]);
 
+  const topTeams = board.slice(0, 5);
+  const winner = topTeams[0];
+  const runnerUp = topTeams[1];
+  const winningGap = winner ? Number(winner.total_score || 0) - Number(runnerUp?.total_score || 0) : 0;
+  const maxScore = Math.max(1, ...topTeams.map((team) => Number(team.total_score || 0)));
+
   return (
     <div className="admin-content">
       <div className="metric-grid">
         <Metric label="Members 会员" value={stats.members} />
         <Metric label="Submissions 提交" value={stats.submissions} />
-        <Metric label="TYFCB" value={money(stats.tyfcb)} />
+        <Metric
+          label="TYFCB"
+          value={money(tyfcbTotal)}
+          detail={`${money(tyfcbTotal)} / ${money(TYFCB_GOAL)}`}
+          progress={tyfcbProgress}
+        />
         <Metric label="Teams 伙伴组" value={board.length} />
       </div>
-      <section className="panel">
+      <section className="panel winning-dashboard">
         <div className="section-heading">
-          <BarChart3 />
-          <div><h2>Buddy ranking 伙伴组排行</h2><p>Ranked by combined team score.</p></div>
+          <Award />
+          <div><h2>Winning now 当前领先</h2><p>Live buddy-pair ranking by approved score.</p></div>
         </div>
-        <div className="chart-box">
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={board.slice(0, 10)}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)" />
-              <XAxis dataKey="team_no" stroke="#9fb0ce" />
-              <YAxis stroke="#9fb0ce" />
-              <Tooltip contentStyle={{ background: "#101d3d", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
-              <Bar dataKey="total_score" fill="#f5c542" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="leaderboard">
-          {board.map((team) => (
-            <div className="leader-row" key={team.team_id}>
-              <b>#{team.rank}</b>
-              <div><strong>Buddy {team.team_no}</strong><span>{team.members?.join(" & ") || "No members"}</span></div>
-              <em>{team.total_score} pts</em>
+        {winner ? (
+          <div className="winner-spotlight">
+            <div>
+              <span className="winner-kicker">#1 Leader 领先伙伴组</span>
+              <h3>Buddy {winner.team_no}</h3>
+              <p>{winner.members?.join(" & ") || "No members"}</p>
             </div>
-          ))}
+            <strong>{winner.total_score || 0} pts</strong>
+            <small>{winningGap > 0 ? `${winningGap} pts ahead of #2 领先第二名 ${winningGap} 分` : "Tied with #2 与第二名同分"}</small>
+          </div>
+        ) : (
+          <p className="empty-state">No ranking yet. 暂无排行。</p>
+        )}
+        <div className="winner-board">
+          {topTeams.map((team) => {
+            const score = Number(team.total_score || 0);
+            const width = Math.max(5, Math.round((score / maxScore) * 100));
+            return (
+              <article className={Number(team.rank) === 1 ? "winner-row first" : "winner-row"} key={team.team_id || team.team_no}>
+                <div className="winner-rank">#{team.rank}</div>
+                <div className="winner-info">
+                  <strong>Buddy {team.team_no}</strong>
+                  <span>{team.members?.join(" & ") || "No members"}</span>
+                  <div className="winner-progress"><i style={{ width: `${width}%` }} /></div>
+                  <small>{team.submission_count || 0} submission(s) · {money(team.total_tyfcb || 0)} TYFCB</small>
+                </div>
+                <b>{score} pts</b>
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>
   );
 }
 
-function Metric({ label, value }) {
+function Metric({ label, value, detail = "", progress = null }) {
   return (
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
+      {typeof progress === "number" && (
+        <div className="metric-progress" aria-label={`${label} progress ${progress}%`}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1514,16 +2404,19 @@ function Metric({ label, value }) {
 function MemberManager({ onChanged, demo = false, adminToken = "" }) {
   const [members, setMembers] = useState([]);
   const [memberScores, setMemberScores] = useState({});
-  const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "", phone: "" });
+  const [memberSubmissions, setMemberSubmissions] = useState([]);
+  const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "", phone: "", reviewer_owner: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [editingMember, setEditingMember] = useState(null);
+  const [editMemberTab, setEditMemberTab] = useState("info");
   const [memberView, setMemberView] = useState("list");
 
   async function load() {
     if (demo) {
       setMembers(DEMO_MEMBERS);
       setMemberScores(buildMemberScores(DEMO_SUBMISSIONS));
+      setMemberSubmissions(DEMO_SUBMISSIONS);
       return;
     }
     const [{ data: memberData }, { data: submissionData }] = await Promise.all([
@@ -1532,6 +2425,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
     ]);
     setMembers(memberData || []);
     setMemberScores(buildMemberScores(submissionData || []));
+    setMemberSubmissions(submissionData || []);
   }
 
   useEffect(() => { load(); }, [adminToken]);
@@ -1545,7 +2439,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
         email: normalizeEmail(newMember.email),
       };
       setMembers((current) => [...current, member].sort((a, b) => a.full_name.localeCompare(b.full_name)));
-      setNewMember({ full_name: "", email: "", company: "", phone: "" });
+      setNewMember({ full_name: "", email: "", company: "", phone: "", reviewer_owner: "" });
       setIsAdding(false);
       onChanged();
       return;
@@ -1556,33 +2450,10 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
       p_email: normalizeEmail(newMember.email),
       p_company: newMember.company,
       p_phone: newMember.phone,
+      p_reviewer_owner: newMember.reviewer_owner || null,
     });
-    setNewMember({ full_name: "", email: "", company: "", phone: "" });
+    setNewMember({ full_name: "", email: "", company: "", phone: "", reviewer_owner: "" });
     setIsAdding(false);
-    await load();
-    onChanged();
-  }
-
-  async function updateBuddy(memberId, buddyMemberId) {
-    if (demo) {
-      setMembers((current) => current.map((member) => {
-        if (member.id === memberId) {
-          const buddy = current.find((item) => item.id === buddyMemberId);
-          return { ...member, buddy_member_id: buddyMemberId || null, buddy };
-        }
-        if (buddyMemberId && member.id === buddyMemberId) {
-          const source = current.find((item) => item.id === memberId);
-          return { ...member, buddy_member_id: memberId, buddy: source };
-        }
-        return member;
-      }));
-      return;
-    }
-    await supabase.rpc("admin_assign_buddy_pair", {
-      p_token: adminToken,
-      p_member_id: memberId,
-      p_buddy_member_id: buddyMemberId || null,
-    });
     await load();
     onChanged();
   }
@@ -1595,9 +2466,22 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
       email: normalizeEmail(editingMember.email),
       phone: editingMember.phone || "",
       company: editingMember.company || "",
+      reviewer_owner: editingMember.reviewer_owner || "",
     };
     if (demo) {
-      setMembers((current) => current.map((member) => member.id === nextMember.id ? nextMember : member).sort((a, b) => a.full_name.localeCompare(b.full_name)));
+      setMembers((current) => current.map((member) => {
+        if (member.id === nextMember.id) {
+          const buddy = current.find((item) => item.id === nextMember.buddy_member_id);
+          return { ...nextMember, buddy: buddy || null };
+        }
+        if (member.buddy_member_id === nextMember.id && member.id !== nextMember.buddy_member_id) {
+          return { ...member, buddy_member_id: null, buddy: null };
+        }
+        if (nextMember.buddy_member_id && member.id === nextMember.buddy_member_id) {
+          return { ...member, buddy_member_id: nextMember.id, buddy: nextMember };
+        }
+        return member;
+      }).sort((a, b) => a.full_name.localeCompare(b.full_name)));
       setEditingMember(null);
       onChanged();
       return;
@@ -1609,10 +2493,21 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
       p_email: nextMember.email,
       p_phone: nextMember.phone,
       p_company: nextMember.company,
+      p_reviewer_owner: nextMember.reviewer_owner || null,
+    });
+    await supabase.rpc("admin_assign_buddy_pair", {
+      p_token: adminToken,
+      p_member_id: nextMember.id,
+      p_buddy_member_id: nextMember.buddy_member_id || null,
     });
     setEditingMember(null);
     await load();
     onChanged();
+  }
+
+  function openMemberEditor(member) {
+    setEditingMember({ ...member });
+    setEditMemberTab("info");
   }
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -1630,6 +2525,11 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
     groups[key].members.push(member);
     return groups;
   }, {})).sort((a, b) => (a.teamNo || 9999) - (b.teamNo || 9999));
+  const editingMemberSubmissions = editingMember
+    ? memberSubmissions
+      .filter((submission) => submission.member_id === editingMember.id)
+      .sort((a, b) => new Date(b.submitted_at || 0).getTime() - new Date(a.submitted_at || 0).getTime())
+    : [];
 
   return (
     <div className="admin-content">
@@ -1651,23 +2551,17 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
           <>
             <div className="table-wrap member-table-wrap">
               <table>
-                <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Buddy pair</th><th>Buddy member</th><th>Edit</th></tr></thead>
+                <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Reviewer</th><th>Buddy pair</th><th>Edit</th></tr></thead>
                 <tbody>
                   {filteredMembers.map((member) => (
                     <tr key={member.id}>
                       <td>{member.full_name}</td>
                       <td>{member.email}</td>
-                      <td>{member.phone || "-"}</td>
                       <td>{member.company || "-"}</td>
+                      <td>{member.reviewer_owner || "-"}</td>
                       <td>{member.buddy_teams?.team_no ? `Pair ${member.buddy_teams.team_no}` : "-"}</td>
                       <td>
-                        <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
-                          <option value="">None</option>
-                          {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
-                        </select>
-                      </td>
-                      <td>
-                        <button className="table-action-button" type="button" onClick={() => setEditingMember({ ...member })}>Edit</button>
+                        <button className="table-action-button" type="button" onClick={() => openMemberEditor(member)}>Edit</button>
                       </td>
                     </tr>
                   ))}
@@ -1676,7 +2570,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
             </div>
             <div className="member-card-list">
               {filteredMembers.map((member) => (
-                <MemberAdminCard key={member.id} member={member} members={members} updateBuddy={updateBuddy} onEdit={() => setEditingMember({ ...member })} />
+                <MemberAdminCard key={member.id} member={member} onEdit={() => openMemberEditor(member)} />
               ))}
             </div>
           </>
@@ -1713,6 +2607,12 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
             <Label text="Company 公司">
               <input value={newMember.company} onChange={(e) => setNewMember({ ...newMember, company: e.target.value })} />
             </Label>
+            <Label text="Submission reviewer 提交负责人">
+              <select value={newMember.reviewer_owner || ""} onChange={(e) => setNewMember({ ...newMember, reviewer_owner: e.target.value })}>
+                <option value="">Unassigned 未分配</option>
+                {REVIEWER_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </Label>
             <div className="button-row">
               <button className="ghost-button" type="button" onClick={() => setIsAdding(false)}>Cancel 取消</button>
               <Button><Plus /> Add 新增</Button>
@@ -1728,22 +2628,44 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
             </button>
             <p>Edit member 编辑会员</p>
             <h2>{editingMember.full_name}</h2>
-            <Label text="Full name 姓名">
-              <input value={editingMember.full_name} onChange={(e) => setEditingMember({ ...editingMember, full_name: e.target.value })} required />
-            </Label>
-            <Label text="Email 电邮">
-              <input type="email" value={editingMember.email} onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })} required />
-            </Label>
-            <Label text="Phone 电话">
-              <input type="tel" value={editingMember.phone || ""} onChange={(e) => setEditingMember({ ...editingMember, phone: e.target.value })} />
-            </Label>
-            <Label text="Company 公司">
-              <input value={editingMember.company || ""} onChange={(e) => setEditingMember({ ...editingMember, company: e.target.value })} />
-            </Label>
-            <div className="button-row">
-              <button className="ghost-button" type="button" onClick={() => setEditingMember(null)}>Cancel 取消</button>
-              <Button>Save 保存</Button>
+            <div className="drawer-tabs modal-tabs">
+              <button type="button" className={editMemberTab === "info" ? "active" : ""} onClick={() => setEditMemberTab("info")}>Info 资料</button>
+              <button type="button" className={editMemberTab === "submissions" ? "active" : ""} onClick={() => setEditMemberTab("submissions")}>Submissions 提交</button>
             </div>
+            {editMemberTab === "info" ? (
+              <>
+                <Label text="Full name 姓名">
+                  <input value={editingMember.full_name} onChange={(e) => setEditingMember({ ...editingMember, full_name: e.target.value })} required />
+                </Label>
+                <Label text="Email 电邮">
+                  <input type="email" value={editingMember.email} onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })} required />
+                </Label>
+                <Label text="Phone 电话">
+                  <input type="tel" value={editingMember.phone || ""} onChange={(e) => setEditingMember({ ...editingMember, phone: e.target.value })} />
+                </Label>
+                <Label text="Company 公司">
+                  <input value={editingMember.company || ""} onChange={(e) => setEditingMember({ ...editingMember, company: e.target.value })} />
+                </Label>
+                <Label text="Submission reviewer 提交负责人">
+                  <select value={editingMember.reviewer_owner || ""} onChange={(e) => setEditingMember({ ...editingMember, reviewer_owner: e.target.value })}>
+                    <option value="">Unassigned 未分配</option>
+                    {REVIEWER_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </Label>
+                <Label text="Buddy member 伙伴会员">
+                  <select className="buddy-select" value={editingMember.buddy_member_id || ""} onChange={(e) => setEditingMember({ ...editingMember, buddy_member_id: e.target.value })}>
+                    <option value="">None 未分配</option>
+                    {members.filter((option) => option.id !== editingMember.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
+                  </select>
+                </Label>
+                <div className="button-row">
+                  <button className="ghost-button" type="button" onClick={() => setEditingMember(null)}>Cancel 取消</button>
+                  <Button>Save 保存</Button>
+                </div>
+              </>
+            ) : (
+              <MemberSubmissionHistory submissions={editingMemberSubmissions} />
+            )}
           </form>
         </div>
       )}
@@ -1766,6 +2688,38 @@ function buildMemberScores(submissions) {
     };
     return scores;
   }, {});
+}
+
+function MemberSubmissionHistory({ submissions }) {
+  if (submissions.length === 0) {
+    return <p className="empty-state">No submissions for this member yet. 此会员暂无提交。</p>;
+  }
+
+  return (
+    <div className="member-submission-history">
+      {submissions.map((submission) => (
+        <article className="member-submission-row" key={submission.id}>
+          <div className="member-submission-row-head">
+            <div>
+              <strong>{submission.week_label}</strong>
+              <span>{submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : "No submit time"}</span>
+            </div>
+            <div className="member-submission-badges">
+              <em className={`status-pill ${submissionReviewStatus(submission).toLowerCase()}`}>{submissionReviewStatus(submission)}</em>
+              <b>{submission.score || 0} pts</b>
+            </div>
+          </div>
+          <dl>
+            <div><dt>1-2-1</dt><dd>{submission.one_to_one || 0}</dd></div>
+            <div><dt>Training</dt><dd>{submission.training || 0}</dd></div>
+            <div><dt>Referral</dt><dd>{submission.referrals || 0}</dd></div>
+            <div><dt>TYFCB</dt><dd>{money(submission.tyfcb || 0)}</dd></div>
+            <div><dt>Visitor</dt><dd>{submission.visitors || 0}</dd></div>
+          </dl>
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function BuddyGroupCard({ group, memberScores }) {
@@ -1809,7 +2763,7 @@ function memberGameStatus(scoreSummary) {
   return `${String(scoreSummary.latestStatus || "Submitted").replace(/^./, (char) => char.toUpperCase())} 已提交`;
 }
 
-function MemberAdminCard({ member, members, updateBuddy, compact = false, scoreSummary = null, onEdit }) {
+function MemberAdminCard({ member, compact = false, scoreSummary = null, onEdit }) {
   return (
     <article className={compact ? "member-list-card compact-member-card" : "member-list-card"}>
       <div>
@@ -1819,17 +2773,12 @@ function MemberAdminCard({ member, members, updateBuddy, compact = false, scoreS
       </div>
       <dl>
         <div><dt>Company 公司</dt><dd>{member.company || "-"}</dd></div>
+        <div><dt>Reviewer 负责人</dt><dd>{member.reviewer_owner || "-"}</dd></div>
         <div><dt>Buddy pair 伙伴组</dt><dd>{member.buddy_teams?.team_no || "-"}</dd></div>
         <div><dt>Buddy partner 伙伴</dt><dd>{member.buddy?.full_name || "None"}</dd></div>
         {scoreSummary && <div><dt>Game input score 分数</dt><dd>{scoreSummary.score || 0} pts</dd></div>}
         {scoreSummary && <div><dt>Submissions 提交</dt><dd>{scoreSummary.submissions || 0}</dd></div>}
       </dl>
-      <Label text="Link buddy member 绑定伙伴会员">
-        <select value={member.buddy_member_id || ""} onChange={(e) => updateBuddy(member.id, e.target.value)}>
-          <option value="">None</option>
-          {members.filter((option) => option.id !== member.id).map((option) => <option key={option.id} value={option.id}>{option.full_name}</option>)}
-        </select>
-      </Label>
       {onEdit && <button className="ghost-button" type="button" onClick={onEdit}>Edit 编辑</button>}
     </article>
   );
@@ -1837,21 +2786,161 @@ function MemberAdminCard({ member, members, updateBuddy, compact = false, scoreS
 
 function SubmissionReview({ demo = false, adminToken = "" }) {
   const [items, setItems] = useState([]);
-  useEffect(() => {
+  const [reviewerFilter, setReviewerFilter] = useState("all");
+  function load() {
     if (demo) {
       setItems(DEMO_SUBMISSIONS);
       return;
     }
     supabase.rpc("admin_submissions", { p_token: adminToken }).then(({ data }) => setItems(data || []));
+  }
+
+  useEffect(() => {
+    load();
   }, [demo, adminToken]);
+
+  const reviewerTabs = [
+    { id: "all", label: "All", match: "" },
+    { id: "peixuan", label: "PeiXuan", match: "peixuan" },
+    { id: "krision", label: "Krision", match: "krision" },
+    { id: "alice", label: "Alice", match: "alice" },
+  ];
+  const selectedReviewer = reviewerTabs.find((tab) => tab.id === reviewerFilter) || reviewerTabs[0];
+  const filteredItems = selectedReviewer.id === "all"
+    ? items
+    : items.filter((item) => String(item.reviewer_owner || "").toLowerCase() === selectedReviewer.match);
+
   return (
     <div className="admin-content">
       <section className="panel">
-        <div className="section-heading"><ClipboardCheck /><div><h2>All submissions 所有提交</h2><p>Full weekly game input list.</p></div></div>
-        <SubmissionTable items={items} />
+        <div className="section-heading">
+          <ClipboardCheck />
+          <div>
+            <h2>{selectedReviewer.id === "all" ? "All submissions 所有提交" : `${selectedReviewer.label} submissions 提交`}</h2>
+            <p>Full weekly game input list.</p>
+          </div>
+        </div>
+        <div className="reviewer-tabs" role="tablist" aria-label="Submission reviewer filters">
+          {reviewerTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={reviewerFilter === tab.id ? "active" : ""}
+              onClick={() => setReviewerFilter(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <SubmissionTable items={filteredItems} demo={demo} adminToken={adminToken} onUpdated={load} emptyLabel={selectedReviewer.id === "all" ? "No submissions yet. 暂无提交。" : `No submissions for ${selectedReviewer.label} yet. 暂无 ${selectedReviewer.label} 提交。`} />
       </section>
     </div>
   );
+}
+
+function ActionLogs({ demo = false, adminToken = "" }) {
+  const [logs, setLogs] = useState([]);
+
+  function load() {
+    if (demo) {
+      setLogs([
+        {
+          id: "demo-log-1",
+          actor_type: "admin",
+          actor_email: "admin@agaventures.ai",
+          action: "admin_approve",
+          member_name: "Tianyi Demo Member",
+          week_label: "Week 1 (02/06 - 08/06)",
+          details: { field: "one_to_one_status", status: "approved" },
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "demo-log-2",
+          actor_type: "member",
+          actor_email: DEMO_MEMBER.email,
+          action: "member_submit",
+          member_name: DEMO_MEMBER.full_name,
+          week_label: "Week 1 (02/06 - 08/06)",
+          details: { one_to_one: 2, training: 1, referrals: 3, tyfcb: 12000, visitors: 1 },
+          created_at: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
+        },
+      ]);
+      return;
+    }
+    supabase
+      .rpc("admin_action_logs", { p_token: adminToken, p_limit: 150 })
+      .then(({ data }) => setLogs(data || []))
+      .catch(() => setLogs([]));
+  }
+
+  useEffect(() => { load(); }, [demo, adminToken]);
+
+  return (
+    <div className="admin-content">
+      <section className="panel">
+        <div className="section-heading">
+          <FileImage />
+          <div>
+            <h2>Action logs 操作记录</h2>
+            <p>Member submissions, admin reviews, rejects, approvals, edits, and bonus changes.</p>
+          </div>
+        </div>
+        {logs.length === 0 ? (
+          <p className="empty-state">No action logs yet. 暂无操作记录。</p>
+        ) : (
+          <div className="action-log-list">
+            {logs.map((log) => (
+              <article className="action-log-row" key={log.id}>
+                <div className="action-log-icon">{log.actor_type === "admin" ? "A" : "M"}</div>
+                <div>
+                  <strong>{actionLogLabel(log.action)}</strong>
+                  <span>{log.member_name || log.member_email || "No member"} · {log.week_label || "No week"}</span>
+                  <small>{actionLogDetail(log)}</small>
+                </div>
+                <aside>
+                  <b>{log.actor_email || log.actor_type}</b>
+                  <span>{log.created_at ? new Date(log.created_at).toLocaleString() : "-"}</span>
+                </aside>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function actionLogLabel(action) {
+  const labels = {
+    member_submit: "Member submitted 会员提交",
+    member_update_submission: "Member updated submission 会员更新提交",
+    admin_approve: "Approved 已批准",
+    admin_reject: "Rejected 已拒绝",
+    admin_reject_status: "Marked rejected 标记拒绝",
+    admin_set_pending: "Set pending 改为待审核",
+    admin_update_visitor_joined: "Visitor joined updated 更新访客加入",
+    admin_bonus_points: "Admin bonus updated 管理员加分",
+    admin_add_member: "Member added 新增会员",
+    admin_update_member: "Member edited 编辑会员",
+    admin_assign_buddy_pair: "Buddy pair assigned 分配伙伴组",
+    admin_clear_buddy_pair: "Buddy pair cleared 清除伙伴组",
+  };
+  return labels[action] || String(action || "Action").replaceAll("_", " ");
+}
+
+function actionLogDetail(log) {
+  const details = log.details || {};
+  if (details.reason) return `Reason 原因: ${details.reason}`;
+  if (details.field && details.status) return `${details.field} -> ${details.status}`;
+  if (typeof details.bonus_points !== "undefined") return `Bonus 加分: ${details.bonus_points} pts${details.note ? ` · ${details.note}` : ""}`;
+  if (typeof details.visitor_joined !== "undefined") return `Visitor joined 访客加入: ${details.visitor_joined}`;
+  const activityParts = ["one_to_one", "training", "referrals", "tyfcb", "visitors"]
+    .filter((key) => typeof details[key] !== "undefined")
+    .map((key) => `${key}: ${details[key]}`);
+  if (activityParts.length) return activityParts.join(" · ");
+  if (details.member_email) return details.member_email;
+  if (details.team_no) return `Buddy team 伙伴组 ${details.team_no}`;
+  return "Recorded by system 系统记录";
 }
 
 function VerificationQueue({ kind, demo = false, adminToken = "" }) {
@@ -2069,6 +3158,7 @@ function ReviewCard({ item, kind, statusField, onReview }) {
 
 function EvidenceLink({ file }) {
   const [url, setUrl] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
   useEffect(() => {
     if (file.file_path?.startsWith("demo/")) {
       setUrl("");
@@ -2076,193 +3166,94 @@ function EvidenceLink({ file }) {
     }
     supabase.storage.from(EVIDENCE_BUCKET).createSignedUrl(file.file_path, 3600).then(({ data }) => setUrl(data?.signedUrl || ""));
   }, [file.file_path]);
-  if (file.file_path?.startsWith("demo/")) return <span><FileImage /> {file.file_name || "Demo proof"}</span>;
-  return url ? <a href={url} target="_blank" rel="noreferrer"><FileImage /> {file.file_name || "Open proof"}</a> : <span>Loading proof...</span>;
-}
-
-function AttendanceList({ demo = false, adminToken = "" }) {
-  const [members, setMembers] = useState([]);
-  const [weeks, setWeeks] = useState(WEEKS);
-  const [selectedWeekId, setSelectedWeekId] = useState(WEEKS[0]?.id || 1);
-  const [attendanceIds, setAttendanceIds] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [draftIds, setDraftIds] = useState([]);
-
-  async function load() {
-    if (demo) {
-      setWeeks(WEEKS);
-      setMembers(DEMO_MEMBERS);
-      setAttendanceIds(DEMO_SUBMISSIONS.filter((item) => item.week_id === Number(selectedWeekId) && item.attended).map((item) => item.member_id));
-      return;
-    }
-    const { data } = await supabase.rpc("admin_attendance_snapshot", {
-      p_token: adminToken,
-      p_week_id: selectedWeekId,
-    });
-    setWeeks(data?.weeks?.length ? data.weeks : WEEKS);
-    setMembers(data?.members || []);
-    setAttendanceIds(data?.attendance || []);
+  const label = file.file_name || "Open proof";
+  if (file.file_path?.startsWith("demo/")) {
+    return (
+      <span className="proof-preview-link">
+        <FileImage /> {label}
+        <button type="button" onClick={() => setPreviewOpen(true)}><Eye /> View 查看</button>
+        {previewOpen && <ExistingProofPreview file={file} url={url} onClose={() => setPreviewOpen(false)} />}
+      </span>
+    );
   }
-
-  useEffect(() => { load(); }, [demo, selectedWeekId, adminToken]);
-
-  function openAttendanceModal() {
-    setDraftIds(attendanceIds);
-    setIsModalOpen(true);
-  }
-
-  function toggleDraft(memberId) {
-    setDraftIds((current) => current.includes(memberId) ? current.filter((id) => id !== memberId) : [...current, memberId]);
-  }
-
-  async function saveAttendance(event) {
-    event.preventDefault();
-    if (demo) {
-      setAttendanceIds(draftIds);
-      setIsModalOpen(false);
-      return;
-    }
-    await supabase.rpc("admin_save_attendance", {
-      p_token: adminToken,
-      p_week_id: Number(selectedWeekId),
-      p_member_ids: draftIds,
-    });
-    setIsModalOpen(false);
-    await load();
-  }
-
-  const selectedWeek = weeks.find((week) => Number(week.id) === Number(selectedWeekId)) || weeks[0];
-  const attendedMembers = members.filter((member) => attendanceIds.includes(member.id));
-  const absentMembers = members.filter((member) => !attendanceIds.includes(member.id));
-  const ratio = members.length ? Math.round((attendedMembers.length / members.length) * 100) : 0;
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-  const modalMembers = normalizedSearch
-    ? members.filter((member) => [member.full_name, member.email, member.company].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch))
-    : members;
-
+  if (!url) return <span>Loading proof...</span>;
   return (
-    <div className="admin-content">
-      <section className="panel">
-        <div className="section-heading"><CheckCircle2 /><div><h2>Attendance list 出席名单</h2><p>Weekly meeting attendance by week.</p></div></div>
-        <div className="attendance-toolbar">
-          <Label text="Week 周次">
-            <select value={selectedWeekId} onChange={(event) => setSelectedWeekId(Number(event.target.value))}>
-              {weeks.map((week) => <option key={week.id} value={week.id}>{week.label}</option>)}
-            </select>
-          </Label>
-          <button className="primary-button" type="button" onClick={openAttendanceModal}>
-            <ClipboardCheck /> Mark attendance 点名
-          </button>
-        </div>
-        <div className="metric-grid attendance-metrics">
-          <Metric label="Attendance ratio 出席率" value={`${ratio}%`} />
-          <Metric label="Attended 已出席" value={attendedMembers.length} />
-          <Metric label="Did not attend 未出席" value={absentMembers.length} />
-          <Metric label="Total members 总会员" value={members.length} />
-        </div>
-        <div className="attendance-columns">
-          <AttendanceGroup title="Did not attend 未出席" members={absentMembers} empty="All members attended. 全员出席。" />
-          <AttendanceGroup title="Already attended 已出席" members={attendedMembers} empty="No attendance marked yet. 暂无出席记录。" />
-        </div>
-      </section>
-      {isModalOpen && (
-        <div className="detail-backdrop" role="dialog" aria-modal="true">
-          <form className="detail-panel attendance-modal" onSubmit={saveAttendance}>
-            <button className="icon-button detail-close" type="button" onClick={() => setIsModalOpen(false)} aria-label="Close attendance">
-              <X />
-            </button>
-            <p>Attendance 点名</p>
-            <h2>{selectedWeek?.label}</h2>
-            <Label text="Search member 搜索会员">
-              <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Name, email or company" />
-            </Label>
-            <div className="attendance-check-list">
-              {modalMembers.map((member) => (
-                <label className="attendance-check-row" key={member.id}>
-                  <input type="checkbox" checked={draftIds.includes(member.id)} onChange={() => toggleDraft(member.id)} />
-                  <span>
-                    <strong>{member.full_name}</strong>
-                    <small>{member.email}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div className="button-row">
-              <button className="ghost-button" type="button" onClick={() => setIsModalOpen(false)}>Cancel 取消</button>
-              <Button><CheckCircle2 /> Save attendance 保存</Button>
-            </div>
-          </form>
-        </div>
-      )}
-    </div>
+    <span className="proof-preview-link">
+      <FileImage /> {label}
+      <button type="button" onClick={() => setPreviewOpen(true)}><Eye /> View 查看</button>
+      {previewOpen && <ExistingProofPreview file={file} url={url} onClose={() => setPreviewOpen(false)} />}
+    </span>
   );
 }
 
-function AttendanceGroup({ title, members, empty }) {
-  return (
-    <section className="attendance-group">
-      <h3>{title}</h3>
-      <div className="attendance-member-list">
-        {members.length === 0 && <p className="muted">{empty}</p>}
-        {members.map((member) => (
-          <article key={member.id}>
-            <strong>{member.full_name}</strong>
-            <span>{member.email}</span>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SubmissionTable({ items }) {
+function SubmissionTable({ items, demo = false, adminToken = "", onUpdated, emptyLabel = "No submissions yet. 暂无提交。" }) {
   const [selected, setSelected] = useState(null);
+  if (items.length === 0) {
+    return <p className="empty-state">{emptyLabel}</p>;
+  }
+  const statusOrder = ["Submitted", "Approved", "Rejected", "Archived"];
+  const groupedItems = statusOrder
+    .map((status) => ({
+      status,
+      items: items.filter((item) => submissionReviewStatus(item) === status),
+    }))
+    .filter((group) => group.items.length > 0);
+
   return (
     <>
-      <div className="table-wrap submission-table-wrap">
-        <table>
-          <thead>
-            <tr><th>Member</th><th>Week</th><th>Status</th><th>Buddy</th><th>1-2-1</th><th>Training</th><th>Referral</th><th>TYFCB</th><th>Visitor</th><th>Score</th></tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="clickable-row" onClick={() => setSelected(item)}>
-                <td>{item.full_name}</td>
-                <td>{item.week_label}</td>
-                <td>{submissionReviewStatus(item)}</td>
-                <td>{item.team_no || "-"}</td>
-                <td>{item.one_to_one}</td>
-                <td>{item.training}</td>
-                <td>{item.referrals}</td>
-                <td>{money(item.tyfcb)}</td>
-                <td>{item.visitors}</td>
-                <td>{item.score}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="submission-card-list">
-        {items.map((item) => (
-          <button className="submission-card" key={item.id} onClick={() => setSelected(item)}>
-            <div>
-              <strong>{item.full_name}</strong>
-              <span>{item.week_label} · {submissionReviewStatus(item)}</span>
+      <div className="submission-status-groups">
+        {groupedItems.map((group) => (
+          <section className="submission-status-group" key={group.status}>
+            <div className="submission-status-heading">
+              <strong>{group.status}</strong>
+              <span>{group.items.length} record(s)</span>
             </div>
-            <div className="submission-card-score">{item.score} pts</div>
-            <dl>
-              <div><dt>Buddy</dt><dd>{item.team_no || "-"}</dd></div>
-              <div><dt>1-2-1</dt><dd>{item.one_to_one}</dd></div>
-              <div><dt>Training</dt><dd>{item.training}</dd></div>
-              <div><dt>Referral</dt><dd>{item.referrals}</dd></div>
-              <div><dt>TYFCB</dt><dd>{money(item.tyfcb)}</dd></div>
-              <div><dt>Visitor</dt><dd>{item.visitors}</dd></div>
-            </dl>
-          </button>
+            <div className="table-wrap submission-table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Member</th><th>Status</th><th>Week</th><th>Buddy</th><th>1-2-1</th><th>Training</th><th>Referral</th><th>TYFCB</th><th>Visitor</th><th>Score</th></tr>
+                </thead>
+                <tbody>
+                  {group.items.map((item) => (
+                    <tr key={item.id} className="clickable-row" onClick={() => setSelected(item)}>
+                      <td>{item.full_name}</td>
+                      <td><span className={`status-pill ${submissionReviewStatus(item).toLowerCase()}`}>{submissionReviewStatus(item)}</span></td>
+                      <td>{item.week_label}</td>
+                      <td>{item.team_no || "-"}</td>
+                      <td>{item.one_to_one}</td>
+                      <td>{item.training}</td>
+                      <td>{item.referrals}</td>
+                      <td>{money(item.tyfcb)}</td>
+                      <td>{item.visitors}</td>
+                      <td>{item.score}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="submission-card-list">
+              {group.items.map((item) => (
+                <button className="submission-card" key={item.id} onClick={() => setSelected(item)}>
+                  <div>
+                    <strong>{item.full_name}</strong>
+                    <span>{item.week_label} · {group.status}</span>
+                  </div>
+                  <div className="submission-card-score">{item.score} pts</div>
+                  <dl>
+                    <div><dt>Buddy</dt><dd>{item.team_no || "-"}</dd></div>
+                    <div><dt>1-2-1</dt><dd>{item.one_to_one}</dd></div>
+                    <div><dt>Training</dt><dd>{item.training}</dd></div>
+                    <div><dt>Referral</dt><dd>{item.referrals}</dd></div>
+                    <div><dt>TYFCB</dt><dd>{money(item.tyfcb)}</dd></div>
+                    <div><dt>Visitor</dt><dd>{item.visitors}</dd></div>
+                  </dl>
+                </button>
+              ))}
+            </div>
+          </section>
         ))}
       </div>
-      {selected && <SubmissionDetail item={selected} onClose={() => setSelected(null)} />}
+      {selected && <SubmissionDetail item={selected} demo={demo} adminToken={adminToken} onSaved={onUpdated} onClose={() => setSelected(null)} />}
     </>
   );
 }
@@ -2281,33 +3272,252 @@ function submissionReviewStatus(item) {
   return "Submitted";
 }
 
-function SubmissionDetail({ item, onClose }) {
+const REVIEW_SECTIONS = [
+  { kind: "one_to_one", label: "1-2-1", zh: "一对一", valueKey: "one_to_one", statusField: "one_to_one_status" },
+  { kind: "training", label: "Training", zh: "培训", valueKey: "training", statusField: "training_status" },
+  { kind: "referral", label: "Referral", zh: "引荐", valueKey: "referrals", statusField: "referral_status" },
+  { kind: "tyfcb", label: "TYFCB", zh: "引荐成交额", valueKey: "tyfcb", statusField: "tyfcb_status" },
+  { kind: "visitor", label: "Visitor", zh: "访客", valueKey: "visitors", statusField: "visitor_status" },
+];
+
+function sectionPointValue(item, kind) {
+  if (kind === "one_to_one") return Math.min(Number(item.one_to_one || 0), 2);
+  if (kind === "training") return Number(item.training || 0) * 5;
+  if (kind === "referral") return Number(item.referrals || 0) * 5;
+  if (kind === "tyfcb") return tierPoints(Number(item.tyfcb || 0));
+  if (kind === "visitor") return (Number(item.visitors || 0) * 10) + (Number(item.visitor_joined || 0) * 25);
+  return 0;
+}
+
+function sectionDisplayValue(item, kind) {
+  if (kind === "tyfcb") return money(item.tyfcb);
+  if (kind === "visitor") return `${item.visitors || 0} visitor(s) · joined ${item.visitor_joined || 0}`;
+  if (kind === "referral") return item.referrals || 0;
+  return item[kind] || 0;
+}
+
+function submissionSectionRows(item, statusOverrides = {}) {
+  return REVIEW_SECTIONS.map((section) => {
+    const status = statusOverrides[section.statusField] || item[section.statusField] || "pending";
+    const rawValue = Number(item[section.valueKey] || 0);
+    const evidence = (item.evidence || []).filter((row) => row.kind === section.kind);
+    return {
+      ...section,
+      status,
+      rawValue,
+      displayValue: sectionDisplayValue(item, section.kind),
+      points: status === "approved" ? sectionPointValue(item, section.kind) : 0,
+      potentialPoints: sectionPointValue(item, section.kind),
+      evidence,
+      needsReview: rawValue > 0,
+    };
+  });
+}
+
+function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClose }) {
+  const [bonusPoints, setBonusPoints] = useState(item.admin_bonus_points || 0);
+  const [bonusNote, setBonusNote] = useState(item.admin_bonus_note || "");
+  const [savingBonus, setSavingBonus] = useState(false);
+  const [bonusMessage, setBonusMessage] = useState("");
+  const [statusOverrides, setStatusOverrides] = useState({});
+  const [reasons, setReasons] = useState({});
+  const [rejectReasonField, setRejectReasonField] = useState("");
+  const [confirmReview, setConfirmReview] = useState(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewMessageField, setReviewMessageField] = useState("");
+  const mergedItem = { ...item, ...statusOverrides, admin_bonus_points: bonusPoints };
+  const sectionRows = submissionSectionRows(mergedItem, statusOverrides);
+  const submittedSectionRows = sectionRows.filter((row) => row.needsReview);
+  const approvedSectionPoints = sectionRows.reduce((total, row) => total + row.points, 0);
+  const allFiveSubmitted = sectionRows.every((row) => row.needsReview);
+  const allFiveApproved = allFiveSubmitted && sectionRows.every((row) => row.status === "approved");
+  const monthlyBonus = allFiveApproved ? Math.max(Number(item.monthly_completion_bonus_points || 0), 3) : Number(item.monthly_completion_bonus_points || 0);
+  const calculatedScore = approvedSectionPoints + Number(bonusPoints || 0) + monthlyBonus;
+  const currentReviewStatus = submissionReviewStatus(mergedItem);
+
+  async function saveBonus(event) {
+    event.preventDefault();
+    setSavingBonus(true);
+    setBonusMessage("");
+    const nextBonus = Math.max(0, Number(bonusPoints) || 0);
+    if (!demo) {
+      await supabase.rpc("admin_update_submission_bonus", {
+        p_token: adminToken,
+        p_submission_id: item.id,
+        p_bonus_points: nextBonus,
+        p_bonus_note: bonusNote,
+      });
+    }
+    setSavingBonus(false);
+    setBonusMessage("Admin points saved. 管理员加分已保存。");
+    onSaved?.();
+  }
+
+  function requestReview(row, value) {
+    if (value === "approved" && row.evidence.length === 0) {
+      setReviewMessage("Cannot approve without proof image. 此项目没有证明照片，不能批准。");
+      setReviewMessageField(row.statusField);
+      setConfirmReview(null);
+      return;
+    }
+    if (value === "rejected" && rejectReasonField !== row.statusField) {
+      setRejectReasonField(row.statusField);
+      setReviewMessage("");
+      setReviewMessageField("");
+      setConfirmReview(null);
+      return;
+    }
+    if (value === "rejected" && String(reasons[row.statusField] || "").trim().length < 3) {
+      setReviewMessage("Please enter rejection reason first. 请先输入拒绝原因。");
+      setReviewMessageField(row.statusField);
+      return;
+    }
+    if (value === "approved") setRejectReasonField("");
+    setReviewMessage("");
+    setReviewMessageField("");
+    setConfirmReview({ row, value });
+  }
+
+  async function confirmSectionReview() {
+    if (!confirmReview) return;
+    const { row, value } = confirmReview;
+    const reason = String(reasons[row.statusField] || "").trim();
+    setReviewBusy(true);
+    if (!demo) {
+      await supabase.rpc("admin_review_submission_section", {
+        p_token: adminToken,
+        p_submission_id: item.id,
+        p_field: row.statusField,
+        p_value: value,
+        p_reason: value === "rejected" ? reason : null,
+      });
+    }
+    setStatusOverrides((current) => ({ ...current, [row.statusField]: value }));
+    setConfirmReview(null);
+    setRejectReasonField("");
+    setReviewBusy(false);
+    setReviewMessage(value === "approved" ? "Section approved. 已批准此项目。" : "Section rejected. 已拒绝此项目。");
+    setReviewMessageField(row.statusField);
+    onSaved?.();
+  }
+
   return createPortal(
     <div className="detail-backdrop" role="dialog" aria-modal="true">
-      <section className="detail-panel">
+      <section className="detail-panel submission-review-panel">
         <button className="icon-button detail-close" onClick={onClose} aria-label="Close details">
           <X />
         </button>
-        <p>Submission details 提交详情</p>
-        <h2>{item.full_name}</h2>
-        <span>{item.week_label}</span>
-        <div className="score-badge large">
-          <strong>{item.score}</strong>
-          <span>pts 分</span>
+        <div className="submission-review-head">
+          <div>
+            <p>Submission details 提交详情</p>
+            <h2>{item.full_name}</h2>
+            <span>{item.week_label}</span>
+          </div>
+          <div className="score-badge large">
+            <strong>{calculatedScore}</strong>
+            <span>pts 分</span>
+          </div>
         </div>
-        <dl>
+
+        <dl className="submission-summary-grid">
           <div><dt>Email 电邮</dt><dd>{item.email || "-"}</dd></div>
-          <div><dt>Status 状态</dt><dd>{submissionReviewStatus(item)}</dd></div>
+          <div><dt>Status 状态</dt><dd><span className={`status-pill ${currentReviewStatus.toLowerCase()}`}>{currentReviewStatus}</span></dd></div>
           <div><dt>Buddy team 伙伴组</dt><dd>{item.team_no || "-"}</dd></div>
-          <div><dt>1-2-1</dt><dd>{item.one_to_one}</dd></div>
-          <div><dt>Training 培训</dt><dd>{item.training}</dd></div>
-          <div><dt>Referral 引荐</dt><dd>{item.referrals}</dd></div>
-          <div><dt>TYFCB</dt><dd>{money(item.tyfcb)}</dd></div>
-          <div><dt>Visitor 访客</dt><dd>{item.visitors}</dd></div>
-          <div><dt>Visitor joined 访客加入</dt><dd>{item.visitor_joined || 0}</dd></div>
-          <div><dt>Attendance 出席</dt><dd>{item.attended ? "Yes 是" : "No 否"}</dd></div>
           <div><dt>Submitted 提交时间</dt><dd>{item.submitted_at ? new Date(item.submitted_at).toLocaleString() : "-"}</dd></div>
         </dl>
+
+        <div className="score-breakdown">
+          <div><span>Approved section pts 已批准项目分</span><strong>{approvedSectionPoints}</strong></div>
+          <div><span>Monthly all-five bonus 每月五项加分</span><strong>{monthlyBonus}</strong></div>
+          <div><span>Admin add-on 管理员加分</span><strong>{Number(bonusPoints || 0)}</strong></div>
+        </div>
+
+        <section className="section-review-list">
+          <div className="section-heading compact-heading">
+            <ShieldCheck />
+            <div>
+              <h3>Section review 分项审核</h3>
+              <p>Only submitted sections above 0 need approval. 任一项目被拒绝，整体状态显示 Rejected。</p>
+            </div>
+          </div>
+          {submittedSectionRows.length === 0 ? (
+            <p className="empty-state">All five sections are 0. No approval needed. 五项全为 0，无需审核。</p>
+          ) : (
+            submittedSectionRows.map((row) => {
+              const isConfirmingRow = confirmReview?.row?.statusField === row.statusField;
+              const isRejectingRow = rejectReasonField === row.statusField || (isConfirmingRow && confirmReview.value === "rejected");
+              const rowMessage = reviewMessage && reviewMessageField === row.statusField ? reviewMessage : "";
+              return (
+                <article className={`section-review-card ${row.status} ${isConfirmingRow ? "reviewing" : ""}`} key={row.kind}>
+                  <div className="section-review-title">
+                    <div>
+                      <strong>{row.label} <small>{row.zh}</small></strong>
+                      <span>{row.displayValue} · {row.points}/{row.potentialPoints} pts</span>
+                    </div>
+                    <em className={`status-pill ${row.status}`}>{row.status}</em>
+                  </div>
+                  <div className="proof-links">
+                    {row.evidence.map((file) => <EvidenceLink file={file} key={file.id} />)}
+                    {row.evidence.length === 0 && (
+                      <span className={row.status === "approved" ? "missing-proof-alert" : ""}>
+                        {row.status === "approved" ? "Approved without proof image 已批准但没有证明照片" : "No proof uploaded 暂无证明"}
+                      </span>
+                    )}
+                  </div>
+                  {isRejectingRow && (
+                    <Label text="Reject reason 拒绝原因">
+                      <input
+                        value={reasons[row.statusField] || ""}
+                        onChange={(event) => setReasons((current) => ({ ...current, [row.statusField]: event.target.value }))}
+                        placeholder="Required when rejecting"
+                      />
+                    </Label>
+                  )}
+                  {rowMessage && <p className="section-review-message">{rowMessage}</p>}
+                  {isConfirmingRow ? (
+                    <div className={confirmReview.value === "approved" ? "confirm-box approve inline-confirm-box" : "confirm-box reject inline-confirm-box"}>
+                      <strong>{confirmReview.value === "approved" ? "Confirm approve? 确认批准？" : "Confirm reject? 确认拒绝？"}</strong>
+                      <span>{row.label} {row.zh} · {confirmReview.value === "approved" ? "Score will be recalculated." : "Overall status will show Rejected."}</span>
+                      <div className="button-row">
+                        <button className="ghost-button" type="button" onClick={() => setConfirmReview(null)}>Cancel 取消</button>
+                        <button className={confirmReview.value === "approved" ? "primary-button" : "danger-button"} type="button" disabled={reviewBusy} onClick={confirmSectionReview}>
+                          {reviewBusy ? <Loader2 className="spin" /> : confirmReview.value === "approved" ? <CheckCircle2 /> : <XCircle />}
+                          Confirm 确认
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="section-review-actions">
+                      <button className="danger-button" type="button" onClick={() => requestReview(row, "rejected")}><XCircle /> Reject 拒绝</button>
+                      <button className="primary-button" type="button" onClick={() => requestReview(row, "approved")}><CheckCircle2 /> Approve 批准</button>
+                    </div>
+                  )}
+                </article>
+              );
+            })
+          )}
+        </section>
+
+        {allFiveSubmitted && (
+          <p className={allFiveApproved ? "notice" : "field-remark"}>
+            First all-five approved record in the month earns +3 pts. 每月第一次五项全批准可获得 3 分。
+          </p>
+        )}
+
+        <form className="admin-bonus-panel" onSubmit={saveBonus}>
+          <Label text="Admin add-on pts 管理员加分">
+            <input type="number" min="0" value={bonusPoints} onChange={(event) => setBonusPoints(event.target.value)} />
+          </Label>
+          <Label text="Admin note 备注">
+            <input value={bonusNote} onChange={(event) => setBonusNote(event.target.value)} placeholder="Reason or remark" />
+          </Label>
+          <button className="primary-button" type="submit" disabled={savingBonus}>
+            {savingBonus ? <Loader2 className="spin" /> : <Plus />}
+            Save admin pts 保存加分
+          </button>
+          {bonusMessage && <p className="notice">{bonusMessage}</p>}
+        </form>
       </section>
     </div>,
     document.body

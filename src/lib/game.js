@@ -1,13 +1,13 @@
 export const WEEKS = [
-  { id: 1, label: "Week 1 (01/06 - 07/06)", starts_on: "2026-06-01", ends_on: "2026-06-07", month: "June" },
-  { id: 2, label: "Week 2 (08/06 - 14/06)", starts_on: "2026-06-08", ends_on: "2026-06-14", month: "June" },
-  { id: 3, label: "Week 3 (15/06 - 21/06)", starts_on: "2026-06-15", ends_on: "2026-06-21", month: "June" },
-  { id: 4, label: "Week 4 (22/06 - 28/06)", starts_on: "2026-06-22", ends_on: "2026-06-28", month: "June" },
-  { id: 5, label: "Week 5 (29/06 - 05/07)", starts_on: "2026-06-29", ends_on: "2026-07-05", month: "July" },
-  { id: 6, label: "Week 6 (06/07 - 12/07)", starts_on: "2026-07-06", ends_on: "2026-07-12", month: "July" },
-  { id: 7, label: "Week 7 (13/07 - 19/07)", starts_on: "2026-07-13", ends_on: "2026-07-19", month: "July" },
-  { id: 8, label: "Week 8 (20/07 - 26/07)", starts_on: "2026-07-20", ends_on: "2026-07-26", month: "July" },
-  { id: 9, label: "Week 9 (27/07 - 31/07)", starts_on: "2026-07-27", ends_on: "2026-07-31", month: "July" },
+  { id: 1, label: "Week 1 (02/06 - 08/06)", starts_on: "2026-06-02", ends_on: "2026-06-08", month: "June" },
+  { id: 2, label: "Week 2 (09/06 - 15/06)", starts_on: "2026-06-09", ends_on: "2026-06-15", month: "June" },
+  { id: 3, label: "Week 3 (16/06 - 22/06)", starts_on: "2026-06-16", ends_on: "2026-06-22", month: "June" },
+  { id: 4, label: "Week 4 (23/06 - 29/06)", starts_on: "2026-06-23", ends_on: "2026-06-29", month: "June" },
+  { id: 5, label: "Week 5 (30/06 - 06/07)", starts_on: "2026-06-30", ends_on: "2026-07-06", month: "July" },
+  { id: 6, label: "Week 6 (07/07 - 13/07)", starts_on: "2026-07-07", ends_on: "2026-07-13", month: "July" },
+  { id: 7, label: "Week 7 (14/07 - 20/07)", starts_on: "2026-07-14", ends_on: "2026-07-20", month: "July" },
+  { id: 8, label: "Week 8 (21/07 - 27/07)", starts_on: "2026-07-21", ends_on: "2026-07-27", month: "July" },
+  { id: 9, label: "Week 9 (28/07 - 03/08)", starts_on: "2026-07-28", ends_on: "2026-08-03", month: "July" },
 ];
 
 export const FIELD_META = {
@@ -33,15 +33,13 @@ export function tierPoints(amount) {
 }
 
 export function calcScore(form) {
-  const fullAttendance = Boolean(form.admin_attended && Number(form.one_to_one) > 0 && Number(form.training) > 0 && Number(form.referrals) > 0 && Number(form.tyfcb) > 0 && Number(form.visitors) > 0);
   return (
     Math.min(Number(form.one_to_one) || 0, 2) +
     (Number(form.training) || 0) * 5 +
     (Number(form.referrals) || 0) * 5 +
     tierPoints(Number(form.tyfcb) || 0) +
     (Number(form.visitors) || 0) * 10 +
-    (Number(form.visitor_joined) || 0) * 25 +
-    (fullAttendance ? 3 : 0)
+    (Number(form.visitor_joined) || 0) * 25
   );
 }
 
@@ -89,7 +87,7 @@ export const DEMO_SUBMISSIONS = [
     id: "demo-submission-week-1",
     member_id: DEMO_MEMBER.id,
     week_id: 1,
-    week_label: "Week 1 (01/06 - 07/06)",
+    week_label: "Week 1 (02/06 - 08/06)",
     full_name: DEMO_MEMBER.full_name,
     email: DEMO_MEMBER.email,
     team_no: 7,
@@ -99,7 +97,6 @@ export const DEMO_SUBMISSIONS = [
     tyfcb: 12000,
     visitors: 1,
     visitor_joined: 0,
-    attended: true,
     score: 41,
     one_to_one_status: "pending",
     training_status: "approved",
@@ -117,7 +114,7 @@ export const DEMO_SUBMISSIONS = [
     id: "demo-submission-week-2",
     member_id: "00000000-0000-4000-8000-000000000002",
     week_id: 2,
-    week_label: "Week 2 (08/06 - 14/06)",
+    week_label: "Week 2 (09/06 - 15/06)",
     full_name: "Demo Buddy Partner",
     email: "demo.buddy@agaventures.ai",
     team_no: 7,
@@ -127,7 +124,6 @@ export const DEMO_SUBMISSIONS = [
     tyfcb: 3500,
     visitors: 2,
     visitor_joined: 1,
-    attended: true,
     score: 67,
     one_to_one_status: "approved",
     training_status: "pending",
