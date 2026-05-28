@@ -18,6 +18,73 @@ export const FIELD_META = {
   visitor: { label: "Visitor", zh: "访客" },
 };
 
+export const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
+export const EVIDENCE_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+export const ACCEPTED_EVIDENCE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+const EVIDENCE_MIME_BY_EXTENSION = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+};
+
+export function evidenceFileExtension(fileName = "") {
+  return String(fileName).split(".").pop()?.toLowerCase() || "";
+}
+
+export function evidenceFileMime(file = {}) {
+  const declaredType = String(file.type || "").toLowerCase();
+  if (declaredType) return declaredType;
+  return EVIDENCE_MIME_BY_EXTENSION[evidenceFileExtension(file.name)] || "";
+}
+
+export function isHeicEvidenceFile(file = {}) {
+  const extension = evidenceFileExtension(file.name);
+  const mimeType = evidenceFileMime(file);
+  return extension === "heic" || extension === "heif" || mimeType === "image/heic" || mimeType === "image/heif";
+}
+
+export function validateEvidenceFile(file = {}, maxBytes = MAX_EVIDENCE_BYTES) {
+  const mimeType = evidenceFileMime(file);
+  const extension = evidenceFileExtension(file.name);
+  const size = Number(file.size || 0);
+
+  if (isHeicEvidenceFile(file)) {
+    return {
+      valid: false,
+      reason: "heic",
+      mimeType,
+      extension,
+      message: "Please upload JPG/PNG image, not HEIC.",
+    };
+  }
+
+  if (size > maxBytes) {
+    return {
+      valid: false,
+      reason: "size",
+      mimeType,
+      extension,
+      message: "Proof photo is over 5MB. Please upload an image under 5MB.",
+    };
+  }
+
+  if (!ACCEPTED_EVIDENCE_MIME_TYPES.includes(mimeType)) {
+    return {
+      valid: false,
+      reason: "type",
+      mimeType,
+      extension,
+      message: "Proof photo must be JPG, JPEG, PNG, or WEBP.",
+    };
+  }
+
+  return { valid: true, reason: "", mimeType, extension, message: "" };
+}
+
 export const ADMIN_EMAILS = (import.meta.env?.VITE_ADMIN_NOTIFICATION_EMAILS || "")
   .split(",")
   .map(normalizeEmail)

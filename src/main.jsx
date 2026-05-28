@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -35,6 +35,8 @@ import {
   FIELD_META,
   WEEKS,
   ADMIN_EMAILS,
+  EVIDENCE_ACCEPT,
+  MAX_EVIDENCE_BYTES,
   activeSubmission,
   calcScore,
   canSubmitWeek,
@@ -42,6 +44,7 @@ import {
   money,
   normalizeEmail,
   tierPoints,
+  validateEvidenceFile,
 } from "./lib/game";
 import {
   beliefs,
@@ -56,7 +59,6 @@ import {
 import "./styles.css";
 
 const isLocalPreview = () => ["localhost", "127.0.0.1"].includes(window.location.hostname);
-const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 const ADMIN_TOKEN_KEY = "tianyi-admin-token";
 const MEMBER_ACCESS_KEY = "tianyi-member-access";
 const TYFCB_GOAL = 7000000;
@@ -1129,7 +1131,97 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
     if (kind === "visitor") return Number(form.visitors) > 0;
     return Number(form[kind]) > 0;
   });
-  const hasProof = (kind) => Array.from(files[kind] || []).length > 0 || existingEvidenceFor(kind).length > 0;
+  const storedEvidenceFor = (kind) => existingEvidenceFor(kind).filter((file) => Boolean(file.file_path));
+  const hasValidSelectedProof = (kind) => Array.from(files[kind] || []).some((file) => validateEvidenceFile(file).valid);
+  const hasProof = (kind) => hasValidSelectedProof(kind) || storedEvidenceFor(kind).length > 0;
+
+  function proofLabel(kind, index = null) {
+    const base = FIELD_META[kind]?.label || kind;
+    return kind === "tyfcb" && index !== null ? `${base} record ${index + 1}` : base;
+  }
+
+  function logProofFile(section, file, validation, extra = {}) {
+    console.info("[weekly proof file]", {
+      section,
+      fileName: file?.name,
+      fileType: file?.type || "",
+      fileSize: file?.size || 0,
+      validation,
+      ...extra,
+    });
+  }
+
+  function validateSelectedFiles(kind, fileList, index = null) {
+    const section = proofLabel(kind, index);
+    const validFiles = [];
+    let firstError = "";
+    for (const file of Array.from(fileList || [])) {
+      const validation = validateEvidenceFile(file, MAX_EVIDENCE_BYTES);
+      logProofFile(section, file, validation);
+      if (validation.valid) {
+        validFiles.push(file);
+      } else if (!firstError) {
+        firstError = `${section}: ${validation.message}`;
+      }
+    }
+    if (firstError) setError(firstError);
+    return validFiles;
+  }
+
+  function validateAllSelectedFiles() {
+    const sectionFiles = evidenceKinds.flatMap((kind) => (
+      Array.from(files[kind] || []).map((file) => ({ kind, file, section: proofLabel(kind) }))
+    ));
+    const tyfcbFilesWithLabels = tyfcbRows.flatMap((row, rowIndex) => (
+      Array.from(row.files || []).map((file) => ({ kind: "tyfcb", file, section: proofLabel("tyfcb", rowIndex) }))
+    ));
+    for (const item of [...sectionFiles, ...tyfcbFilesWithLabels]) {
+      const validation = validateEvidenceFile(item.file, MAX_EVIDENCE_BYTES);
+      logProofFile(item.section, item.file, validation, { stage: "submit-validation" });
+      if (!validation.valid) return `${item.section}: ${validation.message}`;
+    }
+    return "";
+  }
+
+  async function cleanupUploadedEvidence(rows) {
+    const paths = rows.map((row) => row.file_path).filter(Boolean);
+    if (!paths.length) return;
+    const { error: cleanupError } = await supabase.storage.from(EVIDENCE_BUCKET).remove(paths);
+    if (cleanupError) {
+      console.warn("[weekly proof cleanup failed]", { paths, error: cleanupError });
+    }
+  }
+
+  async function uploadEvidenceFile({ file, kind, section, path, fileName }) {
+    const validation = validateEvidenceFile(file, MAX_EVIDENCE_BYTES);
+    logProofFile(section, file, validation, { stage: "before-upload", path });
+    if (!validation.valid) throw new Error(`${section}: ${validation.message}`);
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(EVIDENCE_BUCKET)
+      .upload(path, file, { contentType: validation.mimeType, upsert: false });
+    const { data: publicData } = supabase.storage.from(EVIDENCE_BUCKET).getPublicUrl(path);
+    const { data: signedData, error: signedUrlError } = await supabase.storage.from(EVIDENCE_BUCKET).createSignedUrl(path, 3600);
+
+    console.info("[weekly proof upload result]", {
+      section,
+      kind,
+      path,
+      fileName,
+      uploadData,
+      uploadError,
+      publicUrl: publicData?.publicUrl || "",
+      signedUrl: signedData?.signedUrl || "",
+      signedUrlError,
+    });
+
+    if (uploadError) throw new Error(`${section}: Upload failed - ${uploadError.message}`);
+    if (signedUrlError || !signedData?.signedUrl) {
+      await supabase.storage.from(EVIDENCE_BUCKET).remove([path]);
+      throw new Error(`${section}: Upload succeeded but proof image URL could not be created.`);
+    }
+    return { kind, file_path: path, file_name: fileName, signed_url: signedData?.signedUrl || "" };
+  }
 
   async function deleteExistingEvidence(file) {
     if (!file?.id || demo) return;
@@ -1164,6 +1256,7 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
   function updateActivityValue(kind, value) {
     setForm((current) => {
       if (kind === "referral") return { ...current, referrals: value };
+      if (kind === "visitor") return { ...current, visitors: value };
       return { ...current, [kind]: value };
     });
   }
@@ -1204,15 +1297,13 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
       setError("Preview mode only. Real submission requires member/email check. 预览模式不会提交。");
       return;
     }
-    const tyfcbFiles = tyfcbRows.flatMap((row) => Array.from(row.files || []));
-    const selectedFiles = [...Object.values(files).flatMap((list) => Array.from(list || [])), ...tyfcbFiles];
-    const invalidFile = selectedFiles.find((file) => !file.type.startsWith("image/") || file.size > MAX_EVIDENCE_BYTES);
-    if (invalidFile) {
-      setError("Proof photos must be images under 5MB. 证明照片必须是 5MB 以下的图片。");
+    const invalidFileMessage = validateAllSelectedFiles();
+    if (invalidFileMessage) {
+      setError(invalidFileMessage);
       return;
     }
     const invalidTyfcbRow = tyfcbRows.find((row) => {
-      const hasTyfcbProof = Boolean(row.files?.length || row.existingEvidence?.length);
+      const hasTyfcbProof = Array.from(row.files || []).some((file) => validateEvidenceFile(file).valid) || (row.existingEvidence || []).some((file) => Boolean(file.file_path));
       return (Number(row.amount) > 0 && !hasTyfcbProof) || (Number(row.amount) <= 0 && row.files?.length);
     });
     if (invalidTyfcbRow) {
@@ -1237,46 +1328,69 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
       p_tyfcb: tyfcbTotal,
       p_visitors: Number(form.visitors) || 0,
     };
+    const pendingEvidenceRows = [];
+    try {
+      for (const kind of evidenceKinds) {
+        for (const file of Array.from(files[kind] || [])) {
+          const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
+          const path = `${memberId}/${week.id}/${kind}-${Date.now()}-${window.crypto.randomUUID()}-${safeName}`;
+          pendingEvidenceRows.push(await uploadEvidenceFile({
+            file,
+            kind,
+            section: proofLabel(kind),
+            path,
+            fileName: file.name,
+          }));
+        }
+      }
+      for (const [rowIndex, row] of tyfcbRows.entries()) {
+        if (Number(row.amount) <= 0) continue;
+        for (const file of Array.from(row.files || [])) {
+          const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
+          const path = `${memberId}/${week.id}/tyfcb-${rowIndex + 1}-${Date.now()}-${window.crypto.randomUUID()}-${safeName}`;
+          pendingEvidenceRows.push(await uploadEvidenceFile({
+            file,
+            kind: "tyfcb",
+            section: proofLabel("tyfcb", rowIndex),
+            path,
+            fileName: `${money(row.amount)} - ${file.name}`,
+          }));
+        }
+      }
+    } catch (uploadError) {
+      await cleanupUploadedEvidence(pendingEvidenceRows);
+      setError(uploadError.message || "Unable to upload proof image. 无法上传证明照片。");
+      setBusy(false);
+      return;
+    }
+    console.info("[weekly submit payload]", {
+      payload,
+      uploadedEvidence: pendingEvidenceRows.map((row) => ({
+        kind: row.kind,
+        file_path: row.file_path,
+        file_name: row.file_name,
+        signed_url: row.signed_url,
+      })),
+      existingEvidence: existingEvidenceRows.map((row) => ({
+        kind: row.kind,
+        file_path: row.file_path,
+        file_name: row.file_name,
+      })),
+    });
     const { data, error: insertError } = await supabase.rpc("submit_weekly_update", payload);
     const submission = data?.[0];
 
     if (insertError || !submission) {
+      await cleanupUploadedEvidence(pendingEvidenceRows);
       setError(insertError?.message?.includes("already submitted") ? "This week was already submitted. 本周已经提交。" : insertError?.message || "Unable to submit. 无法提交。");
       setBusy(false);
       return;
     }
 
-    const evidenceRows = [];
-    for (const kind of evidenceKinds) {
-      for (const file of Array.from(files[kind] || [])) {
-        const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
-        const path = `${memberId}/${submission.id}/${kind}-${Date.now()}-${safeName}`;
-        const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(path, file);
-        if (uploadError) {
-          setError(uploadError.message);
-          setBusy(false);
-          return;
-        }
-        evidenceRows.push({ submission_id: submission.id, kind, file_path: path, file_name: file.name });
-      }
-    }
-    for (const [rowIndex, row] of tyfcbRows.entries()) {
-      if (Number(row.amount) <= 0) continue;
-      for (const file of Array.from(row.files || [])) {
-        const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-").toLowerCase();
-        const path = `${memberId}/${submission.id}/tyfcb-${rowIndex + 1}-${Date.now()}-${safeName}`;
-        const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(path, file);
-        if (uploadError) {
-          setError(uploadError.message);
-          setBusy(false);
-          return;
-        }
-        evidenceRows.push({ submission_id: submission.id, kind: "tyfcb", file_path: path, file_name: `${money(row.amount)} - ${file.name}` });
-      }
-    }
-    for (const row of evidenceRows) {
+    const linkedEvidencePaths = [];
+    for (const row of pendingEvidenceRows) {
       const { error: evidenceError } = await supabase.rpc("add_submission_evidence", {
-        p_submission_id: row.submission_id,
+        p_submission_id: submission.id,
         p_member_id: memberId,
         p_email: emailForCheck,
         p_kind: row.kind,
@@ -1284,10 +1398,12 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
         p_file_name: row.file_name,
       });
       if (evidenceError) {
-        setError(evidenceError.message);
+        await cleanupUploadedEvidence(pendingEvidenceRows.filter((item) => !linkedEvidencePaths.includes(item.file_path)));
+        setError(`${FIELD_META[row.kind]?.label || row.kind}: ${evidenceError.message}`);
         setBusy(false);
         return;
       }
+      linkedEvidencePaths.push(row.file_path);
     }
 
     await fetch("/api/submission-email", {
@@ -1322,13 +1438,13 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
         </div>
       </div>
 
-      <ActivitySection title="1-2-1" sub="1 pt each, max 2 每次1分" kind="one_to_one" showProof={Number(form.one_to_one) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("one_to_one")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+      <ActivitySection title="1-2-1" sub="1 pt each, max 2 每次1分" kind="one_to_one" showProof={Number(form.one_to_one) > 0} files={files} setFiles={setFiles} validateFiles={validateSelectedFiles} existingEvidence={existingEvidenceFor("one_to_one")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
         <ActivityStepper icon={<Handshake />} title="1-2-1" sub="1 pt each, max 2 每次1分" value={form.one_to_one} max={2} onChange={(value) => requestActivityValue("one_to_one", value)} />
       </ActivitySection>
-      <ActivitySection title="Training 培训" sub="5 pts each 每次5分" kind="training" showProof={Number(form.training) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("training")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+      <ActivitySection title="Training 培训" sub="5 pts each 每次5分" kind="training" showProof={Number(form.training) > 0} files={files} setFiles={setFiles} validateFiles={validateSelectedFiles} existingEvidence={existingEvidenceFor("training")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
         <ActivityStepper title="Training 培训" sub="5 pts each 每次5分" value={form.training} max={50} onChange={(value) => requestActivityValue("training", value)} />
       </ActivitySection>
-      <ActivitySection title="Referral 引荐" sub="5 pts each 每个5分" kind="referral" showProof={Number(form.referrals) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("referral")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+      <ActivitySection title="Referral 引荐" sub="5 pts each 每个5分" kind="referral" showProof={Number(form.referrals) > 0} files={files} setFiles={setFiles} validateFiles={validateSelectedFiles} existingEvidence={existingEvidenceFor("referral")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
         <ActivityStepper title="Referral 引荐" sub="5 pts each 每个5分" value={form.referrals} max={50} onChange={(value) => requestActivityValue("referral", value)} />
       </ActivitySection>
       <section className="activity-section">
@@ -1336,9 +1452,9 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
           <strong>TYFCB 引荐成交额</strong>
           <span>Each amount requires its own proof image 每笔金额需上传对应证明</span>
         </div>
-        <TyfcbRecordList rows={tyfcbRows} onChange={setTyfcbRows} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId} />
+        <TyfcbRecordList rows={tyfcbRows} onChange={setTyfcbRows} validateFiles={validateSelectedFiles} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId} />
       </section>
-      <ActivitySection title="Visitor 访客" sub="10 pts each 每位10分" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles} existingEvidence={existingEvidenceFor("visitor")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+      <ActivitySection title="Visitor 访客" sub="10 pts each 每位10分" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles} validateFiles={validateSelectedFiles} existingEvidence={existingEvidenceFor("visitor")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
         <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => requestActivityValue("visitor", value)} />
       </ActivitySection>
 
@@ -1391,7 +1507,7 @@ function ZeroActivityConfirm({ item, busy, onCancel, onConfirm }) {
   );
 }
 
-function ActivitySection({ title, sub, kind, showProof, files, setFiles, existingEvidence = [], onDeleteEvidence, deletingEvidenceId = "", children }) {
+function ActivitySection({ title, sub, kind, showProof, files, setFiles, validateFiles, existingEvidence = [], onDeleteEvidence, deletingEvidenceId = "", children }) {
   const selectedFiles = Array.from(files[kind] || []);
   const selectedCount = selectedFiles.length;
   const existingCount = existingEvidence.length;
@@ -1400,7 +1516,8 @@ function ActivitySection({ title, sub, kind, showProof, files, setFiles, existin
   const inputId = `${kind}-proof-input`;
   const clearFiles = () => setFiles({ ...files, [kind]: null });
   const addFiles = (fileList) => {
-    const nextFiles = [...selectedFiles, ...Array.from(fileList || [])];
+    const uploadableFiles = validateFiles ? validateFiles(kind, fileList) : Array.from(fileList || []);
+    const nextFiles = [...selectedFiles, ...uploadableFiles];
     setFiles({ ...files, [kind]: nextFiles.length ? nextFiles : null });
   };
   const removeFile = (indexToRemove) => {
@@ -1423,7 +1540,7 @@ function ActivitySection({ title, sub, kind, showProof, files, setFiles, existin
               className="visually-hidden-file"
               key={`${kind}-${selectedCount}`}
               type="file"
-              accept="image/*"
+              accept={EVIDENCE_ACCEPT}
               multiple
               onChange={(e) => addFiles(e.target.files)}
             />
@@ -1538,14 +1655,16 @@ function ExistingProofPreview({ file, url, onClose }) {
   );
 }
 
-function TyfcbRecordList({ rows, onChange, onDeleteEvidence, deletingEvidenceId = "" }) {
+function TyfcbRecordList({ rows, onChange, validateFiles, onDeleteEvidence, deletingEvidenceId = "" }) {
   const [previewFile, setPreviewFile] = useState(null);
   const updateRow = (id, next) => onChange(rows.map((row) => row.id === id ? { ...row, ...next } : row));
   const addRow = () => onChange([...rows, { id: `tyfcb-${Date.now()}`, amount: "", files: [] }]);
   const removeRow = (id) => onChange(rows.filter((row) => row.id !== id));
   const addFiles = (id, fileList) => {
     const row = rows.find((item) => item.id === id);
-    updateRow(id, { files: [...(row?.files || []), ...Array.from(fileList || [])] });
+    const rowIndex = rows.findIndex((item) => item.id === id);
+    const uploadableFiles = validateFiles ? validateFiles("tyfcb", fileList, rowIndex) : Array.from(fileList || []);
+    updateRow(id, { files: [...(row?.files || []), ...uploadableFiles] });
   };
   const removeFile = (id, indexToRemove) => {
     const row = rows.find((item) => item.id === id);
@@ -1584,7 +1703,7 @@ function TyfcbRecordList({ rows, onChange, onDeleteEvidence, deletingEvidenceId 
                 className="visually-hidden-file"
                 key={`${row.id}-${selectedFiles.length}`}
                 type="file"
-                accept="image/*"
+                accept={EVIDENCE_ACCEPT}
                 multiple
                 onChange={(event) => addFiles(row.id, event.target.files)}
               />
@@ -2227,6 +2346,7 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
   const [tab, setTab] = useState("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [showAd, setShowAd] = useState(false);
+  const [adDismissed, setAdDismissed] = useState(() => window.sessionStorage.getItem("aga-ad-dismissed") === "true");
   const [refreshKey, setRefreshKey] = useState(0);
   const tabs = [
     ["dashboard", "Dashboard 仪表板", BarChart3],
@@ -2236,8 +2356,15 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
   ];
 
   useEffect(() => {
+    if (adDismissed) return undefined;
     const timer = window.setInterval(() => setShowAd(true), 5 * 60 * 1000);
     return () => window.clearInterval(timer);
+  }, [adDismissed]);
+
+  const dismissAd = useCallback(() => {
+    window.sessionStorage.setItem("aga-ad-dismissed", "true");
+    setAdDismissed(true);
+    setShowAd(false);
   }, []);
 
   return (
@@ -2259,7 +2386,7 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
         {tab === "submissions" && <SubmissionReview demo={demo} adminToken={adminToken} />}
         {tab === "logs" && <ActionLogs demo={demo} adminToken={adminToken} />}
       </section>
-      {showAd && <AgaAdPopup onClose={() => setShowAd(false)} />}
+      {showAd && <AgaAdPopup onClose={dismissAd} />}
     </>
   );
 }
@@ -2272,9 +2399,11 @@ function AgaAdPopup({ onClose }) {
     { title: "CRM dashboards", zh: "客户管理仪表板" },
   ];
   return (
-    <div className="aga-ad-backdrop" role="dialog" aria-modal="true">
-      <section className="aga-ad-panel">
-        <button className="icon-button detail-close" onClick={onClose} aria-label="Close AGA showcase">
+    <div className="aga-ad-backdrop" role="dialog" aria-modal="true" onClick={onClose} onKeyDown={(event) => {
+      if (event.key === "Escape") onClose();
+    }}>
+      <section className="aga-ad-panel" onClick={(event) => event.stopPropagation()}>
+        <button className="icon-button detail-close" type="button" onClick={onClose} aria-label="Close AGA showcase">
           <X />
         </button>
         <div className="aga-ad-hero">
