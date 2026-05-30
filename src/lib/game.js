@@ -7,7 +7,7 @@ export const WEEKS = [
   { id: 6, label: "Week 6 (07/07 - 13/07)", starts_on: "2026-07-07", ends_on: "2026-07-13", month: "July" },
   { id: 7, label: "Week 7 (14/07 - 20/07)", starts_on: "2026-07-14", ends_on: "2026-07-20", month: "July" },
   { id: 8, label: "Week 8 (21/07 - 27/07)", starts_on: "2026-07-21", ends_on: "2026-07-27", month: "July" },
-  { id: 9, label: "Week 9 (28/07 - 03/08)", starts_on: "2026-07-28", ends_on: "2026-08-03", month: "July" },
+  { id: 9, label: "Week 9 (28/07 - 31/07)", starts_on: "2026-07-28", ends_on: "2026-07-31", month: "July" },
 ];
 
 export const FIELD_META = {
@@ -108,6 +108,126 @@ export function calcScore(form) {
     (Number(form.visitors) || 0) * 10 +
     (Number(form.visitor_joined) || 0) * 25
   );
+}
+
+function isApprovedPositive(submission, valueKey, statusKey) {
+  return submission?.status !== "archived"
+    && submission?.[statusKey] === "approved"
+    && Number(submission?.[valueKey] || 0) > 0;
+}
+
+function approvedCount(submissions, valueKey, statusKey) {
+  return submissions.reduce((total, submission) => (
+    total + (submission?.status !== "archived" && submission?.[statusKey] === "approved" ? Number(submission?.[valueKey] || 0) : 0)
+  ), 0);
+}
+
+function memberCompletedAllFive(submissions) {
+  return approvedCount(submissions, "one_to_one", "one_to_one_status") > 0
+    && approvedCount(submissions, "training", "training_status") > 0
+    && approvedCount(submissions, "referrals", "referral_status") > 0
+    && approvedCount(submissions, "tyfcb", "tyfcb_status") > 0
+    && approvedCount(submissions, "visitors", "visitor_status") > 0;
+}
+
+function awardKey(teamId, bonusType, periodKey) {
+  return `${teamId}:${bonusType}:${periodKey}`;
+}
+
+export function calculateTeamBonusAwards({ teamId, memberIds = [], submissions = [], weeks = WEEKS }) {
+  const activeMemberIds = memberIds.filter(Boolean);
+  if (!teamId || activeMemberIds.length < 2) return [];
+
+  const teamSubmissions = submissions.filter((submission) => (
+    submission?.status !== "archived"
+    && activeMemberIds.includes(submission.member_id)
+  ));
+  const weekById = new Map(weeks.map((week) => [Number(week.id), week]));
+  const awards = [];
+  const seen = new Set();
+  const pushAward = (award) => {
+    const key = awardKey(teamId, award.bonus_type, award.period_key);
+    if (seen.has(key)) return;
+    seen.add(key);
+    awards.push({ team_id: teamId, ...award });
+  };
+
+  const monthKeys = [...new Set(weeks.map((week) => week.month).filter(Boolean))];
+  for (const month of monthKeys) {
+    const monthSubmissions = teamSubmissions.filter((submission) => (submission.month || weekById.get(Number(submission.week_id))?.month) === month);
+    const bothCompleted = activeMemberIds.every((memberId) => memberCompletedAllFive(monthSubmissions.filter((submission) => submission.member_id === memberId)));
+    if (bothCompleted) {
+      pushAward({
+        bonus_type: "all_five_buddy_monthly",
+        points: 3,
+        week_id: Math.max(...monthSubmissions.map((submission) => Number(submission.week_id || 0))),
+        period_key: `month:${month}`,
+        reason: "Both buddy members completed all five approved sections in the month.",
+      });
+    }
+  }
+
+  for (const week of weeks) {
+    const weekSubmissions = teamSubmissions.filter((submission) => Number(submission.week_id) === Number(week.id));
+    const bothHaveVisitors = activeMemberIds.every((memberId) => (
+      approvedCount(weekSubmissions.filter((submission) => submission.member_id === memberId), "visitors", "visitor_status") > 0
+    ));
+    if (bothHaveVisitors) {
+      pushAward({
+        bonus_type: "both_buddies_visitor_weekly",
+        points: 5,
+        week_id: week.id,
+        period_key: `week:${week.id}`,
+        reason: "Both buddy members had at least one approved visitor in the same week.",
+      });
+    }
+  }
+
+  const sortedWeeks = weeks.map((week) => Number(week.id)).sort((a, b) => a - b);
+  for (let index = 1; index < sortedWeeks.length; index += 1) {
+    const startWeek = sortedWeeks[index - 1];
+    const endWeek = sortedWeeks[index];
+    const windowSubmissions = teamSubmissions.filter((submission) => [startWeek, endWeek].includes(Number(submission.week_id)));
+    const visitorTotal = approvedCount(windowSubmissions, "visitors", "visitor_status");
+    if (visitorTotal >= 4) {
+      pushAward({
+        bonus_type: "four_visitor_two_week",
+        points: 10,
+        week_id: endWeek,
+        period_key: `weeks:${startWeek}-${endWeek}`,
+        reason: "Buddy team had at least four approved visitors across the two-week window.",
+      });
+    }
+  }
+
+  for (const awardWeek of sortedWeeks.filter((weekId) => weekId >= 3)) {
+    const windowWeeks = [awardWeek - 2, awardWeek - 1];
+    const windowSubmissions = teamSubmissions.filter((submission) => windowWeeks.includes(Number(submission.week_id)));
+    const rescued = activeMemberIds.some((weakMemberId) => {
+      const helperMemberIds = activeMemberIds.filter((memberId) => memberId !== weakMemberId);
+      const weakSubmissions = windowSubmissions.filter((submission) => submission.member_id === weakMemberId);
+      const weakSubmittedBothWeeks = windowWeeks.every((weekId) => (
+        weakSubmissions.some((submission) => Number(submission.week_id) === Number(weekId))
+      ));
+      const weakHadNoReferralOrVisitor = approvedCount(weakSubmissions, "referrals", "referral_status") === 0
+        && approvedCount(weakSubmissions, "visitors", "visitor_status") === 0;
+      const helperSubmissions = windowSubmissions.filter((submission) => helperMemberIds.includes(submission.member_id));
+      return weakSubmittedBothWeeks
+        && weakHadNoReferralOrVisitor
+        && (approvedCount(helperSubmissions, "visitors", "visitor_status") > 0 || approvedCount(helperSubmissions, "referrals", "referral_status") >= 3);
+    });
+    if (rescued) {
+      pushAward({
+        bonus_type: "rescue_teammate",
+        points: 5,
+        week_id: awardWeek,
+        period_key: `rescue:${windowWeeks[0]}-${windowWeeks[1]}:${awardWeek}`,
+        reason: "One buddy had zero approved referrals and visitors in the previous two weeks while the other carried visitors or referrals.",
+      });
+    }
+  }
+
+  return awards.sort((a, b) => (Number(a.week_id || 0) - Number(b.week_id || 0)) || a.bonus_type.localeCompare(b.bonus_type));
 }
 
 export function currentSubmissionWeeks(today = new Date()) {
@@ -234,7 +354,7 @@ export const DEMO_TEAMS = Array.from({ length: 10 }, (_, index) => ({
 }));
 
 export const DEMO_BOARD = [
-  { team_id: "demo-team-7", team_no: 7, team_name: "Buddy Team 7", members: ["Tianyi Demo Member", "Demo Buddy Partner"], total_score: 108, total_tyfcb: 15500, submission_count: 2, rank: 1 },
-  { team_id: "demo-team-8", team_no: 8, team_name: "Buddy Team 8", members: ["Demo Visitor Captain"], total_score: 72, total_tyfcb: 8200, submission_count: 1, rank: 2 },
-  { team_id: "demo-team-3", team_no: 3, team_name: "Buddy Team 3", members: ["Demo Training Lead"], total_score: 49, total_tyfcb: 1100, submission_count: 1, rank: 3 },
+  { team_id: "demo-team-7", team_no: 7, team_name: "Buddy Team 7", members: ["Tianyi Demo Member", "Demo Buddy Partner"], total_score: 126, member_score: 108, team_bonus_points: 18, total_tyfcb: 15500, submission_count: 2, rank: 1 },
+  { team_id: "demo-team-8", team_no: 8, team_name: "Buddy Team 8", members: ["Demo Visitor Captain"], total_score: 77, member_score: 72, team_bonus_points: 5, total_tyfcb: 8200, submission_count: 1, rank: 2 },
+  { team_id: "demo-team-3", team_no: 3, team_name: "Buddy Team 3", members: ["Demo Training Lead"], total_score: 49, member_score: 49, team_bonus_points: 0, total_tyfcb: 1100, submission_count: 1, rank: 3 },
 ];

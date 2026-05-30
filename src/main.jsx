@@ -61,6 +61,8 @@ import "./styles.css";
 const isLocalPreview = () => ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const ADMIN_TOKEN_KEY = "tianyi-admin-token";
 const MEMBER_ACCESS_KEY = "tianyi-member-access";
+const AGA_AD_DISMISSED_KEY = "aga-ad-dismissed";
+const AGA_WEBSITE_URL = "https://agaventures.ai";
 const TYFCB_GOAL = 7000000;
 const REVIEWER_OPTIONS = ["PeiXuan", "Krision", "Alice"];
 
@@ -141,7 +143,7 @@ function Shell({ children, wide = false }) {
       {showSiteNav && <SiteNav />}
       {children}
       <FeatureBanner />
-      <FooterBanner />
+      <SponsorCTA />
     </main>
   );
 }
@@ -182,21 +184,27 @@ function FeatureBanner() {
     <section className="feature-banner" aria-label="AGA Ventures services">
       <div className="feature-track">
         {[...items, ...items].map((item, index) => (
-          <span key={`${item}-${index}`}>{item}</span>
+          <a key={`${item}-${index}`} href={AGA_WEBSITE_URL} target="_blank" rel="noreferrer">{item}</a>
         ))}
       </div>
     </section>
   );
 }
 
-function FooterBanner() {
+function SponsorCTA() {
   return (
-    <footer className="footer-banner">
-      <span>TIAN YI OneSystem<sup className="tm-mark">TM</sup></span>
-      <a href="https://agaventures.ai" target="_blank" rel="noreferrer">
-        Supported by AGA Ventures
+    <section className="sponsor-cta" aria-label="AGA Ventures sponsor">
+      <div className="sponsor-mark">AGA</div>
+      <div>
+        <span>Sponsored and built by AGA Ventures Sdn Bhd</span>
+        <strong>Build a system like Tian Yi OneSystem</strong>
+        <p>Business portals · CRM dashboards · Automation workflows · AI websites</p>
+      </div>
+      <a href={AGA_WEBSITE_URL} target="_blank" rel="noreferrer">
+        Visit AGA Ventures
+        <ChevronRight />
       </a>
-    </footer>
+    </section>
   );
 }
 
@@ -467,27 +475,48 @@ function GamePage() {
             <div className="score-rule-list">
               <div>
                 <strong>1-2-1 <small>一对一</small></strong>
-                <span>每次 1 分，最多 2 分；超过 1 次需上传证明。1 point each, max 2; proof required when more than 1.</span>
+                <span>每次 1 分，每周最多 2 分，需上传照片。<br />1 point each, max 2 per week. Photo required.</span>
               </div>
               <div>
                 <strong>Training <small>培训</small></strong>
-                <span>每次 5 分；超过 1 次需上传证明。5 points each; proof required when more than 1.</span>
+                <span>每次 5 分，每月最多 2 次，需上传证明。<br />5 points each, max 2 per month. Proof required.</span>
               </div>
               <div>
                 <strong>Referral <small>引荐</small></strong>
-                <span>每个引荐 5 分；超过 1 个需上传证明。5 points each; proof required when more than 1.</span>
+                <span>每个有效引荐 5 分，需截屏 BNI App。<br />5 points each. BNI App screenshot required.</span>
               </div>
               <div>
                 <strong>TYFCB <small>引荐成交额</small></strong>
-                <span>按金额分级：RM100=1、RM1k=3、RM10k=6、RM20k=9、RM30k=12；每笔需独立证明。Tiered by amount; each record needs its own proof.</span>
+                <span>
+                  RM100-999: 1 分；RM1k-9,999: 3 分；RM10k-19,999: 6 分；RM20k-29,999: 9 分；RM30k 以上: 12 分。需上传 TYFC 证明。
+                  <br />
+                  Tiered by amount. TYFC proof required.
+                </span>
               </div>
               <div>
                 <strong>Visitor <small>访客</small></strong>
-                <span>每位访客 10 分；成功加入会员另加 25 分，由管理员确认。10 points per visitor; 25 extra when joined, admin confirmed.</span>
+                <span>每位访客 10 分，需上传照片；线下 Visitor 必须有 LVH/VH 在场。成功加入额外 25 分，由管理员加分。<br />10 points per visitor. Photo required. Offline Visitor must have LVH/VH present. +25 points if joined, admin confirmed.</span>
               </div>
-              <div>
-                <strong>Buddy Ranking <small>伙伴组排名</small></strong>
-                <span>排行榜以两人伙伴组总分计算，不以个人排名。Leaderboard is ranked by combined buddy-pair score.</span>
+            </div>
+            <div className="score-extra-note">
+              <strong>团队加分计算 <small>Team Bonus Calculation</small></strong>
+              <div className="team-bonus-rule-list">
+                <div>
+                  <span>伙伴两人当月都完成五项并通过审核<br />Both buddies complete all five approved sections in the month</span>
+                  <b>+3 pts</b>
+                </div>
+                <div>
+                  <span>同一周两人都有 Visitor<br />Both buddies have Visitor in the same week</span>
+                  <b>+5 pts</b>
+                </div>
+                <div>
+                  <span>连续两周团队 Visitor 达 4 位<br />Team reaches 4 Visitors across two weeks</span>
+                  <b>+10 pts</b>
+                </div>
+                <div>
+                  <span>队友前两周 Referral 与 Visitor 都为 0，另一位有 Visitor 或 3 个 Referral<br />Rescue teammate: one buddy has 0 Referral and 0 Visitor, the other has Visitor or 3 Referrals</span>
+                  <b>+5 pts</b>
+                </div>
               </div>
             </div>
             <Link className="primary-link" to="/game/weeklyupdate">
@@ -520,15 +549,22 @@ function TopFiveAwardCard() {
 }
 
 function GameLeaderboard() {
-  const [rows, setRows] = useState(DEMO_BOARD);
-  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (isLocalPreview()) return;
     setLoading(true);
+    setError("");
     supabase.rpc("team_leaderboard")
-      .then(({ data }) => {
-        if (data?.length) setRows(data);
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn("[leaderboard] real data unavailable", error);
+          setError("Unable to load real leaderboard data. 无法加载真实排行榜数据。");
+          setRows([]);
+          return;
+        }
+        setRows(data?.length ? data : []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -538,23 +574,32 @@ function GameLeaderboard() {
       <div className="section-heading">
         <BarChart3 />
         <div>
-          <h2>Leaderboard 排行榜</h2>
-          <p>以伙伴组总分排名，不以个人排名。Ranking is by buddy pair, not individual member.</p>
+          <h2>伙伴组排名 Buddy Ranking</h2>
+          <p>排行榜以两人伙伴组总分计算，不以个人排名。Leaderboard is ranked by combined buddy-pair score.</p>
         </div>
       </div>
       <div className="leaderboard">
         {loading && <p className="muted">Loading leaderboard...</p>}
+        {!loading && error && <p className="error">{error}</p>}
+        {!loading && rows.length === 0 && <p className="muted">No leaderboard data yet. 暂无排行榜数据。</p>}
         {rows.slice(0, 10).map((team, index) => {
           const isPremium = index < 5;
+          const isCompact = index >= 5;
+          const memberScore = Number(team.member_score ?? team.total_score ?? team.score ?? 0);
+          const teamBonusPoints = Number(team.team_bonus_points || 0);
+          const totalScore = Number(team.total_score || team.score || 0);
+          const teamName = team.team_name || team.name || `Team ${team.team_no}`;
+          const memberNames = Array.isArray(team.members) && team.members.length ? team.members.join(" + ") : `${team.member_a_name || team.member_one || "会员 A Member A"} + ${team.member_b_name || team.member_two || "会员 B Member B"}`;
           return (
-          <div className={isPremium ? "leader-row premium-leader" : "leader-row"} key={team.team_id || team.team_no || team.name}>
+          <div className={`${isPremium ? "leader-row premium-leader" : "leader-row"} ${isCompact ? "compact-leader" : ""}`} key={team.team_id || team.team_no || team.name}>
             <div>
               <span className="leader-rank">#{index + 1}</span>
-              <strong>{team.name || `Team ${team.team_no}`}</strong>
-              {isPremium && <small>Top 5 Premium 高级榜</small>}
-              <span>{team.member_a_name || team.member_one || "会员 A Member A"} + {team.member_b_name || team.member_two || "会员 B Member B"}</span>
+              <strong>{teamName}</strong>
+              {isCompact && <span className="compact-member-names">{memberNames}</span>}
+              {!isCompact && <span className="leader-member-names">{memberNames}</span>}
+              {!isCompact && <span className="leader-score-breakdown">Member {memberScore} · Bonus +{teamBonusPoints}</span>}
             </div>
-            <b>{team.total_score || team.score || 0} pts</b>
+            <b>{totalScore} pts</b>
           </div>
           );
         })}
@@ -1003,6 +1048,8 @@ function WeeklyDesk({ member, demo = false, initialWeek = null, verifiedEmail = 
           member={member}
           week={selectedWeek}
           existingSubmission={activeSubmission(submissions).find((item) => Number(item.week_id) === Number(selectedWeek.id))}
+          submissions={submissions}
+          teamTotalPoints={teamTotalPoints}
           verifiedEmail={verifiedEmail}
           onCancel={() => setSelectedWeek(null)}
           onSubmitted={load}
@@ -1099,7 +1146,7 @@ function WeeklyPreSubmitScreen({ week, submissions, teamTotalPoints = 0, onStart
   );
 }
 
-function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "", onCancel, onSubmitted, demo = false }) {
+function WeeklyForm({ member, week, existingSubmission = null, submissions = [], teamTotalPoints = 0, verifiedEmail = "", onCancel, onSubmitted, demo = false }) {
   const navigate = useNavigate();
   const [zeroConfirm, setZeroConfirm] = useState(null);
   const [existingEvidenceRows, setExistingEvidenceRows] = useState(() => (
@@ -1318,6 +1365,10 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
     setBusy(true);
     const memberId = member.id || member.member_id;
     const emailForCheck = verifiedEmail || member.email;
+    const memberPoints = activeSubmission(submissions).reduce((total, item) => total + Number(item.score || 0), 0);
+    const pairPoints = Math.max(Number(teamTotalPoints || 0), memberPoints);
+    const buddyScore = Math.max(pairPoints - memberPoints, 0);
+    const buddySubmitted = buddyScore > 0;
     const payload = {
       p_member_id: memberId,
       p_email: emailForCheck,
@@ -1417,6 +1468,9 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
         score: submission.score,
         origin: window.location.origin,
         adminEmails: ADMIN_EMAILS,
+        reviewerOwner: member.reviewer_owner || "",
+        buddyScore,
+        buddySubmitted,
       }),
     }).catch(() => {});
 
@@ -1454,7 +1508,7 @@ function WeeklyForm({ member, week, existingSubmission = null, verifiedEmail = "
         </div>
         <TyfcbRecordList rows={tyfcbRows} onChange={setTyfcbRows} validateFiles={validateSelectedFiles} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId} />
       </section>
-      <ActivitySection title="Visitor 访客" sub="10 pts each 每位10分" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles} validateFiles={validateSelectedFiles} existingEvidence={existingEvidenceFor("visitor")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
+      <ActivitySection title="Visitor 访客" sub="10 pts each; offline visitor needs LVH/VH present 每位10分；线下需 LVH/VH 在场" kind="visitor" showProof={Number(form.visitors) > 0} files={files} setFiles={setFiles} validateFiles={validateSelectedFiles} existingEvidence={existingEvidenceFor("visitor")} onDeleteEvidence={deleteExistingEvidence} deletingEvidenceId={deletingEvidenceId}>
         <ActivityStepper title="Visitor 访客" sub="10 pts each 每位10分" value={form.visitors} max={50} onChange={(value) => requestActivityValue("visitor", value)} />
       </ActivitySection>
 
@@ -2154,6 +2208,7 @@ function SubmissionReceiptCard({ submission }) {
             <b>{row.points} pts</b>
           </div>
         ))}
+        <p className="field-remark">Buddy team bonus points are shown on the leaderboard only. 伙伴组团队加分只显示在排行榜，不计入个人收据。</p>
       </div>
       <section className="receipt-record-summary">
         <div className="receipt-record-head">
@@ -2346,7 +2401,10 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
   const [tab, setTab] = useState("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [showAd, setShowAd] = useState(false);
-  const [adDismissed, setAdDismissed] = useState(() => window.sessionStorage.getItem("aga-ad-dismissed") === "true");
+  const [adDismissed, setAdDismissed] = useState(() =>
+    window.localStorage.getItem(AGA_AD_DISMISSED_KEY) === "true" ||
+    window.sessionStorage.getItem(AGA_AD_DISMISSED_KEY) === "true"
+  );
   const [refreshKey, setRefreshKey] = useState(0);
   const tabs = [
     ["dashboard", "Dashboard 仪表板", BarChart3],
@@ -2362,7 +2420,8 @@ function AdminWorkspace({ demo = false, adminToken = "" }) {
   }, [adDismissed]);
 
   const dismissAd = useCallback(() => {
-    window.sessionStorage.setItem("aga-ad-dismissed", "true");
+    window.localStorage.setItem(AGA_AD_DISMISSED_KEY, "true");
+    window.sessionStorage.setItem(AGA_AD_DISMISSED_KEY, "true");
     setAdDismissed(true);
     setShowAd(false);
   }, []);
@@ -2398,10 +2457,18 @@ function AgaAdPopup({ onClose }) {
     { title: "Automation workflows", zh: "自动化流程" },
     { title: "CRM dashboards", zh: "客户管理仪表板" },
   ];
-  return (
-    <div className="aga-ad-backdrop" role="dialog" aria-modal="true" onClick={onClose} onKeyDown={(event) => {
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
       if (event.key === "Escape") onClose();
-    }}>
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="aga-ad-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <section className="aga-ad-panel" onClick={(event) => event.stopPropagation()}>
         <button className="icon-button detail-close" type="button" onClick={onClose} aria-label="Close AGA showcase">
           <X />
@@ -2424,9 +2491,14 @@ function AgaAdPopup({ onClose }) {
               </strong>
             ))}
           </div>
-          <a className="aga-ad-link" href="https://agaventures.ai" target="_blank" rel="noreferrer">
-            Visit agaventures.ai
-          </a>
+          <div className="aga-ad-actions">
+            <a className="aga-ad-link" href={AGA_WEBSITE_URL} target="_blank" rel="noreferrer">
+              Visit agaventures.ai
+            </a>
+            <button className="aga-ad-disable" type="button" onClick={onClose}>
+              Don't show again 不再显示
+            </button>
+          </div>
         </div>
       </section>
     </div>
@@ -2435,16 +2507,36 @@ function AgaAdPopup({ onClose }) {
 
 function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
   const [board, setBoard] = useState([]);
-  const [stats, setStats] = useState({ members: 0, submissions: 0, tyfcb: 0 });
+  const [stats, setStats] = useState({ members: 0, submissions: 0, pending_submissions: 0, weekly_missing_submissions: [], tyfcb: 0 });
   const tyfcbTotal = Number(stats.tyfcb || 0);
   const tyfcbProgress = TYFCB_GOAL ? Math.min(100, Math.round((tyfcbTotal / TYFCB_GOAL) * 100)) : 0;
+  const totalSubmissions = Number(stats.submissions || 0);
+  const pendingSubmissions = Number(stats.pending_submissions || 0);
+  const weeklyMissingSubmissions = Array.isArray(stats.weekly_missing_submissions) ? stats.weekly_missing_submissions : [];
 
   useEffect(() => {
     if (demo) {
+      const activeMembers = DEMO_MEMBERS.length;
       setBoard(DEMO_BOARD);
       setStats({
-        members: DEMO_MEMBERS.length,
+        members: activeMembers,
         submissions: DEMO_SUBMISSIONS.length,
+        pending_submissions: DEMO_SUBMISSIONS.filter((item) => submissionReviewStatus(item) === "Pending").length,
+        weekly_missing_submissions: WEEKS.map((week) => {
+          const submittedMembers = new Set(
+            DEMO_SUBMISSIONS
+              .filter((item) => Number(item.week_id) === Number(week.id) && item.status !== "archived")
+              .map((item) => item.member_id)
+          ).size;
+          return {
+            week_id: week.id,
+            label: week.label,
+            starts_on: week.starts_on,
+            ends_on: week.ends_on,
+            submitted_members: submittedMembers,
+            missing_members: Math.max(0, activeMembers - submittedMembers),
+          };
+        }),
         tyfcb: DEMO_SUBMISSIONS.reduce((sum, item) => sum + Number(item.tyfcb || 0), 0),
       });
       return;
@@ -2464,8 +2556,12 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
   return (
     <div className="admin-content">
       <div className="metric-grid">
-        <Metric label="Members 会员" value={stats.members} />
-        <Metric label="Submissions 提交" value={stats.submissions} />
+        <Metric label="Members 会员" value={stats.members} detail="Weekly not submitted below 每周未提交见下方" />
+        <Metric
+          label="Total submissions 总提交"
+          value={totalSubmissions}
+          detail={`Pending ${pendingSubmissions} 待审核 ${pendingSubmissions}`}
+        />
         <Metric
           label="TYFCB"
           value={money(tyfcbTotal)}
@@ -2474,6 +2570,7 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
         />
         <Metric label="Teams 伙伴组" value={board.length} />
       </div>
+      <WeeklyMissingSubmissions rows={weeklyMissingSubmissions} />
       <section className="panel winning-dashboard">
         <div className="section-heading">
           <Award />
@@ -2512,6 +2609,33 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
         </div>
       </section>
     </div>
+  );
+}
+
+function WeeklyMissingSubmissions({ rows }) {
+  return (
+    <section className="panel weekly-missing-panel">
+      <div className="section-heading compact-heading">
+        <ClipboardCheck />
+        <div>
+          <h3>Weekly not submitted 每周未提交</h3>
+          <p>Active members without an active submission for each week. 每周未提交的活跃会员人数。</p>
+        </div>
+      </div>
+      {rows.length ? (
+        <div className="weekly-missing-grid">
+          {rows.map((week) => (
+            <div className="weekly-missing-chip" key={week.week_id}>
+              <span>Week {week.week_id}</span>
+              <strong>{Number(week.missing_members || 0)}</strong>
+              <small>not submitted 未提交</small>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-state">No weekly submission data yet. 暂无每周提交数据。</p>
+      )}
+    </section>
   );
 }
 
@@ -2916,6 +3040,8 @@ function MemberAdminCard({ member, compact = false, scoreSummary = null, onEdit 
 function SubmissionReview({ demo = false, adminToken = "" }) {
   const [items, setItems] = useState([]);
   const [reviewerFilter, setReviewerFilter] = useState("all");
+  const [submissionSearch, setSubmissionSearch] = useState("");
+  const [buddyFilter, setBuddyFilter] = useState("all");
   function load() {
     if (demo) {
       setItems(DEMO_SUBMISSIONS);
@@ -2935,9 +3061,18 @@ function SubmissionReview({ demo = false, adminToken = "" }) {
     { id: "alice", label: "Alice", match: "alice" },
   ];
   const selectedReviewer = reviewerTabs.find((tab) => tab.id === reviewerFilter) || reviewerTabs[0];
-  const filteredItems = selectedReviewer.id === "all"
+  const reviewerFilteredItems = selectedReviewer.id === "all"
     ? items
     : items.filter((item) => String(item.reviewer_owner || "").toLowerCase() === selectedReviewer.match);
+  const buddyOptions = Array.from(new Set(items.map((item) => item.team_no).filter((teamNo) => teamNo !== null && typeof teamNo !== "undefined" && teamNo !== "")))
+    .sort((a, b) => Number(a) - Number(b));
+  const normalizedSearch = submissionSearch.trim().toLowerCase();
+  const filteredItems = reviewerFilteredItems.filter((item) => {
+    const matchesMember = !normalizedSearch || [item.full_name, item.email].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch);
+    const matchesBuddy = buddyFilter === "all" || String(item.team_no || "") === buddyFilter;
+    return matchesMember && matchesBuddy;
+  });
+  const activeFilterCount = Number(Boolean(normalizedSearch)) + Number(buddyFilter !== "all");
 
   return (
     <div className="admin-content">
@@ -2949,6 +3084,32 @@ function SubmissionReview({ demo = false, adminToken = "" }) {
             <p>Full weekly game input list.</p>
           </div>
         </div>
+        <div className="submission-filter-bar">
+          <Label text="Search member 搜索会员">
+            <input
+              type="search"
+              value={submissionSearch}
+              onChange={(event) => setSubmissionSearch(event.target.value)}
+              placeholder="Name or email 名字或电邮"
+            />
+          </Label>
+          <Label text="Buddy group 伙伴组">
+            <select value={buddyFilter} onChange={(event) => setBuddyFilter(event.target.value)}>
+              <option value="all">All buddy groups 全部伙伴组</option>
+              {buddyOptions.map((teamNo) => (
+                <option key={teamNo} value={String(teamNo)}>Buddy {teamNo}</option>
+              ))}
+            </select>
+          </Label>
+          {activeFilterCount > 0 && (
+            <button className="ghost-button" type="button" onClick={() => { setSubmissionSearch(""); setBuddyFilter("all"); }}>
+              Clear filters 清除筛选
+            </button>
+          )}
+        </div>
+        <p className="filter-summary">
+          Showing {filteredItems.length} of {reviewerFilteredItems.length} submission(s). 显示 {filteredItems.length} / {reviewerFilteredItems.length} 个提交。
+        </p>
         <div className="reviewer-tabs" role="tablist" aria-label="Submission reviewer filters">
           {reviewerTabs.map((tab) => (
             <button
@@ -2969,6 +3130,9 @@ function SubmissionReview({ demo = false, adminToken = "" }) {
 
 function ActionLogs({ demo = false, adminToken = "" }) {
   const [logs, setLogs] = useState([]);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [datePreset, setDatePreset] = useState("");
 
   function load() {
     if (demo) {
@@ -2997,12 +3161,46 @@ function ActionLogs({ demo = false, adminToken = "" }) {
       return;
     }
     supabase
-      .rpc("admin_action_logs", { p_token: adminToken, p_limit: 150 })
+      .rpc("admin_action_logs", { p_token: adminToken, p_limit: 300 })
       .then(({ data }) => setLogs(data || []))
       .catch(() => setLogs([]));
   }
 
   useEffect(() => { load(); }, [demo, adminToken]);
+
+  function formatDateInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function applyDatePreset(preset) {
+    const today = new Date();
+    const start = new Date(today);
+    const end = new Date(today);
+    if (preset === "yesterday") {
+      start.setDate(today.getDate() - 1);
+      end.setDate(today.getDate() - 1);
+    }
+    if (preset === "week") {
+      const day = today.getDay();
+      const mondayOffset = day === 0 ? -6 : 1 - day;
+      start.setDate(today.getDate() + mondayOffset);
+    }
+    setDatePreset(preset);
+    setDateFrom(formatDateInput(start));
+    setDateTo(formatDateInput(end));
+  }
+
+  const filteredLogs = logs.filter((log) => {
+    const createdAt = log.created_at ? new Date(log.created_at).getTime() : 0;
+    const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toTime = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null;
+    if (fromTime && createdAt < fromTime) return false;
+    if (toTime && createdAt > toTime) return false;
+    return true;
+  });
 
   return (
     <div className="admin-content">
@@ -3014,11 +3212,38 @@ function ActionLogs({ demo = false, adminToken = "" }) {
             <p>Member submissions, admin reviews, rejects, approvals, edits, and bonus changes.</p>
           </div>
         </div>
-        {logs.length === 0 ? (
+        <div className="action-log-toolbar">
+          <div className="date-preset-group" aria-label="Quick date filters">
+            <button className={datePreset === "today" ? "active" : ""} type="button" onClick={() => applyDatePreset("today")}>
+              Today 今天
+            </button>
+            <button className={datePreset === "yesterday" ? "active" : ""} type="button" onClick={() => applyDatePreset("yesterday")}>
+              Yesterday 昨天
+            </button>
+            <button className={datePreset === "week" ? "active" : ""} type="button" onClick={() => applyDatePreset("week")}>
+              This week 本周
+            </button>
+          </div>
+          <Label text="From date 开始日期">
+            <input type="date" value={dateFrom} onChange={(event) => { setDatePreset(""); setDateFrom(event.target.value); }} />
+          </Label>
+          <Label text="To date 结束日期">
+            <input type="date" value={dateTo} onChange={(event) => { setDatePreset(""); setDateTo(event.target.value); }} />
+          </Label>
+          {(dateFrom || dateTo) && (
+            <button className="ghost-button" type="button" onClick={() => { setDatePreset(""); setDateFrom(""); setDateTo(""); }}>
+              Clear dates 清除日期
+            </button>
+          )}
+        </div>
+        <p className="filter-summary">
+          Showing {filteredLogs.length} of {logs.length} log(s). 显示 {filteredLogs.length} / {logs.length} 条记录。
+        </p>
+        {filteredLogs.length === 0 ? (
           <p className="empty-state">No action logs yet. 暂无操作记录。</p>
         ) : (
           <div className="action-log-list">
-            {logs.map((log) => (
+            {filteredLogs.map((log) => (
               <article className="action-log-row" key={log.id}>
                 <div className="action-log-icon">{log.actor_type === "admin" ? "A" : "M"}</div>
                 <div>
@@ -3053,6 +3278,9 @@ function actionLogLabel(action) {
     admin_update_member: "Member edited 编辑会员",
     admin_assign_buddy_pair: "Buddy pair assigned 分配伙伴组",
     admin_clear_buddy_pair: "Buddy pair cleared 清除伙伴组",
+    email_member_submission: "Submission email sent 提交邮件已发送",
+    email_admin_submission: "Admin notification email sent 管理员通知邮件已发送",
+    email_member_rejection: "Rejection email sent 拒绝通知邮件已发送",
   };
   return labels[action] || String(action || "Action").replaceAll("_", " ");
 }
@@ -3060,6 +3288,9 @@ function actionLogLabel(action) {
 function actionLogDetail(log) {
   const details = log.details || {};
   if (details.reason) return `Reason 原因: ${details.reason}`;
+  if (details.recipient || details.status || details.subject) {
+    return `${details.status || "sent"} · ${details.recipient || "no recipient"}${details.subject ? ` · ${details.subject}` : ""}`;
+  }
   if (details.field && details.status) return `${details.field} -> ${details.status}`;
   if (typeof details.bonus_points !== "undefined") return `Bonus 加分: ${details.bonus_points} pts${details.note ? ` · ${details.note}` : ""}`;
   if (typeof details.visitor_joined !== "undefined") return `Visitor joined 访客加入: ${details.visitor_joined}`;
@@ -3121,6 +3352,7 @@ function VerificationQueue({ kind, demo = false, adminToken = "" }) {
       body: JSON.stringify({
         email: item.email,
         name: item.full_name,
+        submissionId: item.id,
         week: item.week_label,
         kind: FIELD_META[kind]?.label || kind,
         reason,
@@ -3409,6 +3641,33 @@ const REVIEW_SECTIONS = [
   { kind: "visitor", label: "Visitor", zh: "访客", valueKey: "visitors", statusField: "visitor_status" },
 ];
 
+const TEAM_BONUS_OPTIONS = [
+  {
+    type: "all_five_buddy_monthly",
+    label: "All-five buddy monthly 全勤团队加分",
+    description: "Both buddies complete 1-2-1, Referral, Training, TYFCB, and Visitor in the same month. 伙伴两人当月五项都通过审核。",
+    points: 3,
+  },
+  {
+    type: "both_buddies_visitor_weekly",
+    label: "Both buddies visitor 来宾团队加分",
+    description: "Both buddies each have at least one approved Visitor in the same week. 同一周两人都有已批准 Visitor。",
+    points: 5,
+  },
+  {
+    type: "four_visitor_two_week",
+    label: "4 visitors / 2 weeks 双人行动加分",
+    description: "Buddy team reaches 4 approved Visitors across a two-week window. 连续两周团队 Visitor 达 4 位。",
+    points: 10,
+  },
+  {
+    type: "rescue_teammate",
+    label: "Rescue teammate 逆风翻盘",
+    description: "Previous two weeks: one buddy submitted both weeks with 0 Referral and 0 Visitor; the other has Visitor or 3 Referrals. 前两周一位队友已提交但 Referral 与 Visitor 为 0，另一位有 Visitor 或 3 个 Referral。",
+    points: 5,
+  },
+];
+
 function sectionPointValue(item, kind) {
   if (kind === "one_to_one") return Math.min(Number(item.one_to_one || 0), 2);
   if (kind === "training") return Number(item.training || 0) * 5;
@@ -3443,9 +3702,43 @@ function submissionSectionRows(item, statusOverrides = {}) {
   });
 }
 
+function teamBonusLabel(type) {
+  return TEAM_BONUS_OPTIONS.find((option) => option.type === type)?.label || type;
+}
+
+function teamBonusNotQualifiedReason(option, submission, sectionRows) {
+  if (option.type === "all_five_buddy_monthly") {
+    const missingApprovedSections = sectionRows
+      .filter((row) => !row.needsReview || row.status !== "approved")
+      .map((row) => row.label);
+    if (missingApprovedSections.length > 0) {
+      return `This submission still needs approved ${missingApprovedSections.join(", ")}. 此提交还有项目未通过。`;
+    }
+    return "This member is complete, but the buddy pair has not both completed all five approved sections in the month. 本人已完成，但伙伴两人当月五项未同时达成。";
+  }
+
+  if (option.type === "both_buddies_visitor_weekly") {
+    if (Number(submission.visitors || 0) <= 0 || submission.visitor_status !== "approved") {
+      return "This submission has no approved Visitor yet. 此提交还没有已批准 Visitor。";
+    }
+    return "The buddy partner has no approved Visitor in this same week yet. 同一周伙伴尚未有已批准 Visitor。";
+  }
+
+  if (option.type === "four_visitor_two_week") {
+    return "The buddy team has fewer than 4 approved Visitors across the two-week window. 连续两周团队已批准 Visitor 未达到 4 位。";
+  }
+
+  if (option.type === "rescue_teammate") {
+    return "The previous two-week rescue condition was not met, or the teammate did not submit both weeks. 前两周逆风翻盘条件未达成，或队友没有连续两周提交。";
+  }
+
+  return "Rule condition has not been met yet. 条件尚未达成。";
+}
+
 function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClose }) {
   const [bonusPoints, setBonusPoints] = useState(item.admin_bonus_points || 0);
   const [bonusNote, setBonusNote] = useState(item.admin_bonus_note || "");
+  const [logsExpanded, setLogsExpanded] = useState(false);
   const [savingBonus, setSavingBonus] = useState(false);
   const [bonusMessage, setBonusMessage] = useState("");
   const [statusOverrides, setStatusOverrides] = useState({});
@@ -3460,9 +3753,16 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   const submittedSectionRows = sectionRows.filter((row) => row.needsReview);
   const approvedSectionPoints = sectionRows.reduce((total, row) => total + row.points, 0);
   const allFiveSubmitted = sectionRows.every((row) => row.needsReview);
-  const allFiveApproved = allFiveSubmitted && sectionRows.every((row) => row.status === "approved");
-  const monthlyBonus = allFiveApproved ? Math.max(Number(item.monthly_completion_bonus_points || 0), 3) : Number(item.monthly_completion_bonus_points || 0);
+  const monthlyBonus = Number(item.monthly_completion_bonus_points || 0);
   const calculatedScore = approvedSectionPoints + Number(bonusPoints || 0) + monthlyBonus;
+  const teamBonusAwards = Array.isArray(item.team_bonus_awards) ? item.team_bonus_awards : [];
+  const teamBonusTotal = teamBonusAwards.reduce((total, award) => total + Number(award.points || 0), 0);
+  const teamBonusOptionRows = TEAM_BONUS_OPTIONS.map((option) => ({
+    ...option,
+    awards: teamBonusAwards.filter((award) => award.bonus_type === option.type),
+    notQualifiedReason: teamBonusNotQualifiedReason(option, mergedItem, sectionRows),
+  }));
+  const relatedLogs = Array.isArray(item.action_logs) ? item.action_logs : [];
   const currentReviewStatus = submissionReviewStatus(mergedItem);
 
   async function saveBonus(event) {
@@ -3558,9 +3858,41 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
 
         <div className="score-breakdown">
           <div><span>Approved section pts 已批准项目分</span><strong>{approvedSectionPoints}</strong></div>
-          <div><span>Monthly all-five bonus 每月五项加分</span><strong>{monthlyBonus}</strong></div>
+          <div><span>Member monthly bonus 个人月加分</span><strong>{monthlyBonus}</strong></div>
           <div><span>Admin add-on 管理员加分</span><strong>{Number(bonusPoints || 0)}</strong></div>
+          <div><span>Buddy team bonus 排行榜团队加分</span><strong>{teamBonusTotal}</strong></div>
         </div>
+
+        <section className="team-bonus-panel">
+          <div className="section-heading compact-heading">
+            <Award />
+            <div>
+              <h3>Buddy team bonus 团队加分</h3>
+              <p>These points are added to the leaderboard, not this member receipt. 这些分数只计入伙伴组排行榜。</p>
+            </div>
+          </div>
+          <div className="team-bonus-list">
+            {teamBonusOptionRows.map((option) => {
+              const awarded = option.awards.length > 0;
+              const awardedPeriods = option.awards
+                .map((award) => `${award.period_key}${award.week_id ? ` · Week ${award.week_id}` : ""}`)
+                .join(", ");
+              return (
+                <div className={awarded ? "team-bonus-row awarded" : "team-bonus-row not-qualified"} key={option.type}>
+                  <div>
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                    <small>{awarded ? `Awarded 已获得: ${awardedPeriods}` : `Not qualified: ${option.notQualifiedReason}`}</small>
+                  </div>
+                  <aside>
+                    <b>+{option.points} pts</b>
+                    <em>{awarded ? "Awarded 已加分" : "Not qualified"}</em>
+                  </aside>
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
         <section className="section-review-list">
           <div className="section-heading compact-heading">
@@ -3629,8 +3961,8 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
         </section>
 
         {allFiveSubmitted && (
-          <p className={allFiveApproved ? "notice" : "field-remark"}>
-            First all-five approved record in the month earns +3 pts. 每月第一次五项全批准可获得 3 分。
+          <p className="field-remark">
+            New rule: all-five bonus is now awarded to the buddy team when both buddies qualify. 新规则：全勤加分归伙伴组排行榜。
           </p>
         )}
 
@@ -3647,6 +3979,36 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
           </button>
           {bonusMessage && <p className="notice">{bonusMessage}</p>}
         </form>
+
+        <section className="related-log-panel">
+          <button className="related-log-toggle" type="button" onClick={() => setLogsExpanded((expanded) => !expanded)}>
+            <span>Related logs 相关操作记录</span>
+            <b>{relatedLogs.length} record(s)</b>
+            <ChevronRight className={logsExpanded ? "open" : ""} />
+          </button>
+          {logsExpanded && (
+            relatedLogs.length ? (
+              <div className="action-log-list compact-action-log-list">
+                {relatedLogs.map((log) => (
+                  <article className="action-log-row" key={log.id}>
+                    <div className="action-log-icon">{log.actor_type === "admin" ? "A" : "M"}</div>
+                    <div>
+                      <strong>{actionLogLabel(log.action)}</strong>
+                      <span>{log.member_name || log.member_email || "No member"} · {log.week_label || "No week"}</span>
+                      <small>{actionLogDetail(log)}</small>
+                    </div>
+                    <aside>
+                      <b>{log.actor_email || log.actor_type}</b>
+                      <span>{log.created_at ? new Date(log.created_at).toLocaleString() : "-"}</span>
+                    </aside>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">No related logs for this submission yet. 此提交暂无相关操作记录。</p>
+            )
+          )}
+        </section>
       </section>
     </div>,
     document.body
