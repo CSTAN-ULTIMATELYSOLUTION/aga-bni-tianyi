@@ -6,25 +6,51 @@ export default async function handler(request, response) {
     return;
   }
 
-  const { email, name, submissionId, week, kind, reason, origin } = request.body || {};
-  if (!email || !reason) {
+  const { email, name, submissionId, week, kind, reason, rejectedSections, approvedSections, origin } = request.body || {};
+  const correctionRows = Array.isArray(rejectedSections)
+    ? rejectedSections
+        .map((section) => ({
+          label: String(section.label || section.kind || "Section").trim(),
+          reason: String(section.reason || "").trim(),
+        }))
+        .filter((section) => section.reason)
+    : [];
+  const fallbackReason = String(reason || "").trim();
+
+  if (!email || (correctionRows.length === 0 && !fallbackReason)) {
     response.status(400).json({ error: "Missing email or reason" });
     return;
   }
 
   const appOrigin = process.env.VITE_APP_ORIGIN || origin || "https://tianyi.agaventures.ai";
-  const subject = `Tianyi Game proof needs correction ${week || ""}`;
+  const subject = `Tianyi Game submission needs correction ${week || ""}`;
+  const rejectedList = correctionRows.length
+    ? `<ul style="margin:10px 0 0;padding-left:18px">${correctionRows.map((section) => `
+        <li style="margin:0 0 10px">
+          <strong>${escapeHtml(section.label)}</strong><br>
+          <span>${escapeHtml(section.reason)}</span>
+        </li>
+      `).join("")}</ul>`
+    : `<p style="margin:0;color:#991b1b"><strong>Reason 原因:</strong> ${escapeHtml(fallbackReason)}</p>`;
+  const approvedList = Array.isArray(approvedSections) && approvedSections.length
+    ? `
+      <p style="margin:16px 0 6px;color:#166534"><strong>Approved items 已批准项目:</strong></p>
+      <p style="margin:0;color:#166534">${approvedSections.map((section) => escapeHtml(section)).join(", ")}</p>
+    `
+    : "";
   const html = emailShell({
     title: "Weekly submission needs correction",
     subtitle: "每周提交需要修正",
     body: `
       <p>Hi ${escapeHtml(name || "member")},</p>
-      <p>Your <strong>${escapeHtml(kind || "proof")}</strong> proof for <strong>${escapeHtml(week || "")}</strong> needs a correction before points can be approved.</p>
+      <p>Your <strong>${escapeHtml(week || "weekly")}</strong> submission has item(s) that need correction before points can be approved.</p>
       <div style="margin:18px 0;padding:14px;border:1px solid #fecaca;border-radius:14px;background:#fff7f7">
-        <p style="margin:0;color:#991b1b"><strong>Reason 原因:</strong> ${escapeHtml(reason)}</p>
+        <p style="margin:0 0 6px;color:#991b1b"><strong>Rejected items 需修正项目</strong></p>
+        ${rejectedList}
+        ${approvedList}
       </div>
-      <p>Please update the proof or resubmit the section from the weekly update page.</p>
-      <p>请到每周更新页面修正证明或重新提交相关项目。</p>
+      <p>Please update the rejected section(s) from the weekly update page. Other approved section(s) do not need to be changed.</p>
+      <p>请到每周更新页面修正被拒绝的项目；已批准项目无需更改。</p>
       ${emailButton(`${appOrigin}/game/weeklyupdate`, "Open weekly update 打开每周更新")}
     `,
   });
@@ -36,7 +62,12 @@ export default async function handler(request, response) {
       action: "email_member_rejection",
       recipient: email,
       status: "skipped",
-      details: { subject, reason: "RESEND_API_KEY not configured" },
+      details: {
+        subject,
+        reason: "RESEND_API_KEY not configured",
+        rejected_sections: correctionRows,
+        approved_sections: approvedSections || [],
+      },
     });
     response.status(202).json({ skipped: true, reason: "RESEND_API_KEY not configured" });
     return;
@@ -63,7 +94,14 @@ export default async function handler(request, response) {
     action: "email_member_rejection",
     recipient: email,
     status: resend.ok ? "sent" : "failed",
-    details: { subject, kind: kind || null, rejection_reason: reason, resend_error: errorText || null },
+    details: {
+      subject,
+      kind: kind || null,
+      rejection_reason: fallbackReason || null,
+      rejected_sections: correctionRows,
+      approved_sections: approvedSections || [],
+      resend_error: errorText || null,
+    },
   });
 
   if (!resend.ok) {

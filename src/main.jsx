@@ -3287,6 +3287,9 @@ function actionLogLabel(action) {
 
 function actionLogDetail(log) {
   const details = log.details || {};
+  if (Array.isArray(details.rejected_sections) && details.rejected_sections.length) {
+    return `${details.status || "sent"} · ${details.recipient || "no recipient"} · ${details.rejected_sections.length} rejected section(s)`;
+  }
   if (details.reason) return `Reason 原因: ${details.reason}`;
   if (details.recipient || details.status || details.subject) {
     return `${details.status || "sent"} · ${details.recipient || "no recipient"}${details.subject ? ` · ${details.subject}` : ""}`;
@@ -3748,6 +3751,10 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
   const [reviewMessageField, setReviewMessageField] = useState("");
+  const [confirmCorrectionEmail, setConfirmCorrectionEmail] = useState(false);
+  const [sendingCorrectionEmail, setSendingCorrectionEmail] = useState(false);
+  const [correctionEmailMessage, setCorrectionEmailMessage] = useState("");
+  const [correctionEmailSentAt, setCorrectionEmailSentAt] = useState("");
   const mergedItem = { ...item, ...statusOverrides, admin_bonus_points: bonusPoints };
   const sectionRows = submissionSectionRows(mergedItem, statusOverrides);
   const submittedSectionRows = sectionRows.filter((row) => row.needsReview);
@@ -3764,6 +3771,44 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   }));
   const relatedLogs = Array.isArray(item.action_logs) ? item.action_logs : [];
   const currentReviewStatus = submissionReviewStatus(mergedItem);
+  const latestCorrectionEmailLog = relatedLogs.find((log) => log.action === "email_member_rejection");
+  const latestRejectLog = relatedLogs.find((log) => log.action === "admin_reject_status" || log.action === "admin_reject");
+  const rejectedSectionRows = submittedSectionRows.filter((row) => row.status === "rejected");
+  const approvedSectionLabels = submittedSectionRows
+    .filter((row) => row.status === "approved")
+    .map((row) => `${row.label} ${row.zh}`);
+  const rejectedCorrections = rejectedSectionRows.map((row) => {
+    const loggedReason = relatedLogs.find((log) =>
+      log.action === "admin_reject_status" &&
+      log.details?.field === row.statusField &&
+      log.details?.reason
+    )?.details?.reason;
+    return {
+      kind: row.kind,
+      field: row.statusField,
+      label: `${row.label} ${row.zh}`,
+      reason: String(reasons[row.statusField] || loggedReason || "").trim(),
+    };
+  });
+  const missingCorrectionReasons = rejectedCorrections.filter((section) => !section.reason);
+  const latestEmailTime = correctionEmailSentAt
+    ? new Date(correctionEmailSentAt).getTime()
+    : latestCorrectionEmailLog?.created_at
+      ? new Date(latestCorrectionEmailLog.created_at).getTime()
+      : 0;
+  const latestRejectTime = latestRejectLog?.created_at ? new Date(latestRejectLog.created_at).getTime() : 0;
+  const hasNewLocalRejectedSection = rejectedSectionRows.some((row) => statusOverrides[row.statusField] === "rejected");
+  const rejectedReviewNeedsEmail = rejectedSectionRows.length > 0 && (hasNewLocalRejectedSection || !latestEmailTime || latestEmailTime < latestRejectTime);
+  const closeBlockedByCorrectionEmail = rejectedReviewNeedsEmail;
+
+  function handleClose() {
+    if (closeBlockedByCorrectionEmail) {
+      setCorrectionEmailMessage("Please send the correction email before closing. 请先发送修正通知，才能退出。");
+      setConfirmCorrectionEmail(false);
+      return;
+    }
+    onClose?.();
+  }
 
   async function saveBonus(event) {
     event.preventDefault();
@@ -3828,13 +3873,61 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
     setReviewBusy(false);
     setReviewMessage(value === "approved" ? "Section approved. 已批准此项目。" : "Section rejected. 已拒绝此项目。");
     setReviewMessageField(row.statusField);
+    setCorrectionEmailMessage(value === "rejected" ? "Rejected section saved. Send one correction email before closing. 已保存拒绝项目，请发送一次修正通知后再退出。" : "");
+    if (value === "rejected") setConfirmCorrectionEmail(false);
     onSaved?.();
+  }
+
+  async function sendCorrectionEmail() {
+    if (rejectedCorrections.length === 0) return;
+    if (missingCorrectionReasons.length > 0) {
+      setCorrectionEmailMessage("Every rejected section needs a reason before sending. 每个拒绝项目都需要原因。");
+      setConfirmCorrectionEmail(false);
+      return;
+    }
+    if (!confirmCorrectionEmail) {
+      setConfirmCorrectionEmail(true);
+      setCorrectionEmailMessage("");
+      return;
+    }
+    setSendingCorrectionEmail(true);
+    setCorrectionEmailMessage("");
+    try {
+      if (!demo) {
+        const response = await fetch("/api/rejection-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: item.email,
+            name: item.full_name,
+            submissionId: item.id,
+            week: item.week_label,
+            rejectedSections: rejectedCorrections,
+            approvedSections: approvedSectionLabels,
+            origin: window.location.origin,
+          }),
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || "Unable to send correction email.");
+        }
+      }
+      const sentAt = new Date().toISOString();
+      setCorrectionEmailSentAt(sentAt);
+      setConfirmCorrectionEmail(false);
+      setCorrectionEmailMessage("Correction email sent. You can now close this review. 修正通知已发送，现在可以退出。");
+      onSaved?.();
+    } catch (error) {
+      setCorrectionEmailMessage(`Correction email failed. Please retry. 修正通知发送失败，请重试。 ${error.message || ""}`);
+    } finally {
+      setSendingCorrectionEmail(false);
+    }
   }
 
   return createPortal(
     <div className="detail-backdrop" role="dialog" aria-modal="true">
       <section className="detail-panel submission-review-panel">
-        <button className="icon-button detail-close" onClick={onClose} aria-label="Close details">
+        <button className="icon-button detail-close" onClick={handleClose} aria-label="Close details">
           <X />
         </button>
         <div className="submission-review-head">
@@ -3959,6 +4052,38 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
             })
           )}
         </section>
+
+        {rejectedSectionRows.length > 0 && (
+          <section className="correction-email-panel">
+            <div>
+              <strong>Final correction notice 最终修正通知</strong>
+              <span>
+                {rejectedReviewNeedsEmail
+                  ? "Rejected section(s) found. Send one compiled email before closing this review."
+                  : "Correction email already sent. You may resend if reasons changed."}
+                {" "}
+                {rejectedReviewNeedsEmail ? "发现拒绝项目，退出前需发送一次整合通知。" : "已发送修正通知，如原因有更改可重新发送。"}
+              </span>
+              <small>
+                {rejectedCorrections.map((section) => `${section.label}: ${section.reason || "Missing reason"}`).join(" · ")}
+              </small>
+            </div>
+            {confirmCorrectionEmail && (
+              <div className="confirm-box reject inline-confirm-box">
+                <strong>Send correction email? 确认发送修正通知？</strong>
+                <span>This sends one email with all rejected sections and reasons. 将一次性发送所有拒绝项目与原因。</span>
+              </div>
+            )}
+            <button className="danger-button" type="button" disabled={sendingCorrectionEmail || missingCorrectionReasons.length > 0} onClick={sendCorrectionEmail}>
+              {sendingCorrectionEmail ? <Loader2 className="spin" /> : <Mail />}
+              {latestEmailTime ? "Resend correction email 重新发送修正通知" : "Send correction email 发送修正通知"}
+            </button>
+            {missingCorrectionReasons.length > 0 && (
+              <p className="section-review-message">Some rejected sections have no reason. 部分拒绝项目没有原因。</p>
+            )}
+            {correctionEmailMessage && <p className="notice">{correctionEmailMessage}</p>}
+          </section>
+        )}
 
         {allFiveSubmitted && (
           <p className="field-remark">
