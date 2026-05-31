@@ -73,39 +73,82 @@ test("team bonus awards monthly all-five only when both buddies complete all fiv
 
   assert.equal(awards.filter((award) => award.bonus_type === "all_five_buddy_monthly").length, 1);
   assert.equal(awards.find((award) => award.bonus_type === "all_five_buddy_monthly").points, 3);
+  assert.equal(awards.find((award) => award.bonus_type === "all_five_buddy_monthly").period_key, "month-1");
 });
 
-test("team bonus awards weekly visitor bonus when both buddies have approved visitors in the same week", () => {
+test("team bonus awards monthly all-five separately for week 5 to campaign end", () => {
   const awards = calculateTeamBonusAwards({
     teamId: "team-1",
     memberIds: ["member-a", "member-b"],
     submissions: [
-      submission({ member_id: "member-a", week_id: 4, visitors: 1 }),
-      submission({ member_id: "member-b", week_id: 4, visitors: 2 }),
-      submission({ member_id: "member-a", week_id: 5, visitors: 1 }),
+      submission({ member_id: "member-a", week_id: 5, one_to_one: 1, training: 1, referrals: 1, tyfcb: 1000, visitors: 1 }),
+      submission({ member_id: "member-b", week_id: 6, one_to_one: 1, training: 1, referrals: 1, tyfcb: 1000, visitors: 1 }),
     ],
   });
 
-  assert.deepEqual(
-    awards.filter((award) => award.bonus_type === "both_buddies_visitor_weekly").map((award) => award.week_id),
-    [4]
-  );
+  assert.equal(awards.find((award) => award.bonus_type === "all_five_buddy_monthly")?.period_key, "month-2");
+  assert.equal(awards.find((award) => award.bonus_type === "all_five_buddy_monthly")?.points, 3);
 });
 
-test("team bonus awards four visitor and rescue bonuses on two-week windows", () => {
+test("team bonus awards monthly visitor tiers using highest tier only", () => {
+  const twoVisitorAwards = calculateTeamBonusAwards({
+    teamId: "team-1",
+    memberIds: ["member-a", "member-b"],
+    submissions: [
+      submission({ member_id: "member-a", week_id: 1, visitors: 1 }),
+      submission({ member_id: "member-b", week_id: 2, visitors: 1 }),
+    ],
+  });
+  assert.equal(twoVisitorAwards.find((award) => award.bonus_type === "monthly_visitor_2")?.points, 5);
+  assert.equal(twoVisitorAwards.some((award) => award.bonus_type === "monthly_visitor_4"), false);
+
+  const fourVisitorAwards = calculateTeamBonusAwards({
+    teamId: "team-1",
+    memberIds: ["member-a", "member-b"],
+    submissions: [
+      submission({ member_id: "member-a", week_id: 1, visitors: 2 }),
+      submission({ member_id: "member-b", week_id: 3, visitors: 2 }),
+    ],
+  });
+  assert.equal(fourVisitorAwards.find((award) => award.bonus_type === "monthly_visitor_4")?.points, 10);
+  assert.equal(fourVisitorAwards.some((award) => award.bonus_type === "monthly_visitor_2"), false);
+
+  const fiveVisitorAwards = calculateTeamBonusAwards({
+    teamId: "team-1",
+    memberIds: ["member-a", "member-b"],
+    submissions: [
+      submission({ member_id: "member-a", week_id: 1, visitors: 5 }),
+    ],
+  });
+  assert.equal(fiveVisitorAwards.find((award) => award.bonus_type === "monthly_visitor_4")?.points, 10);
+  assert.equal(fiveVisitorAwards.some((award) => award.bonus_type === "monthly_visitor_2"), false);
+});
+
+test("rescue bonus triggers when one buddy is empty and the other has visitor or referrals", () => {
   const awards = calculateTeamBonusAwards({
     teamId: "team-1",
     memberIds: ["member-a", "member-b"],
     submissions: [
-      submission({ member_id: "member-a", week_id: 1, visitors: 2, referrals: 0 }),
-      submission({ member_id: "member-a", week_id: 2, visitors: 2, referrals: 0 }),
+      submission({ member_id: "member-a", week_id: 1, visitors: 1, referrals: 0, tyfcb: 0 }),
+      submission({ member_id: "member-a", week_id: 2, visitors: 0, referrals: 0, tyfcb: 0 }),
       submission({ member_id: "member-b", week_id: 1, visitors: 0, referrals: 0 }),
       submission({ member_id: "member-b", week_id: 2, visitors: 0, referrals: 0 }),
     ],
   });
 
-  assert.equal(awards.find((award) => award.bonus_type === "four_visitor_two_week")?.points, 10);
   assert.equal(awards.find((award) => award.bonus_type === "rescue_teammate")?.points, 5);
+
+  const referralAwards = calculateTeamBonusAwards({
+    teamId: "team-1",
+    memberIds: ["member-a", "member-b"],
+    submissions: [
+      submission({ member_id: "member-a", week_id: 1, visitors: 0, referrals: 3, tyfcb: 0 }),
+      submission({ member_id: "member-a", week_id: 2, visitors: 0, referrals: 0, tyfcb: 0 }),
+      submission({ member_id: "member-b", week_id: 1, visitors: 0, referrals: 0 }),
+      submission({ member_id: "member-b", week_id: 2, visitors: 0, referrals: 0 }),
+    ],
+  });
+  assert.equal(referralAwards.find((award) => award.bonus_type === "rescue_teammate")?.points, 5);
 });
 
 test("rescue bonus does not count a missing teammate submission as zero activity", () => {
@@ -115,6 +158,21 @@ test("rescue bonus does not count a missing teammate submission as zero activity
     submissions: [
       submission({ member_id: "member-a", week_id: 1, visitors: 1, referrals: 0 }),
       submission({ member_id: "member-a", week_id: 2, visitors: 0, referrals: 3 }),
+    ],
+  });
+
+  assert.equal(awards.some((award) => award.bonus_type === "rescue_teammate"), false);
+});
+
+test("rescue bonus does not trigger if empty buddy has TYFCB", () => {
+  const awards = calculateTeamBonusAwards({
+    teamId: "team-1",
+    memberIds: ["member-a", "member-b"],
+    submissions: [
+      submission({ member_id: "member-a", week_id: 1, visitors: 1, referrals: 0 }),
+      submission({ member_id: "member-a", week_id: 2, visitors: 0, referrals: 0 }),
+      submission({ member_id: "member-b", week_id: 1, visitors: 0, referrals: 0, tyfcb: 1000 }),
+      submission({ member_id: "member-b", week_id: 2, visitors: 0, referrals: 0 }),
     ],
   });
 

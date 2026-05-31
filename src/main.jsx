@@ -483,7 +483,7 @@ function GamePage() {
               </div>
               <div>
                 <strong>Referral <small>引荐</small></strong>
-                <span>每个有效引荐 5 分，需截屏 BNI App。<br />5 points each. BNI App screenshot required.</span>
+                <span>每个有效引荐 5 分，需截屏 BNI App，截图需显示 3 个 mark 或以上。<br />5 points each. BNI App screenshot required with 3 marks and above.</span>
               </div>
               <div>
                 <strong>TYFCB <small>引荐成交额</small></strong>
@@ -500,21 +500,22 @@ function GamePage() {
             </div>
             <div className="score-extra-note">
               <strong>团队加分计算 <small>Team Bonus Calculation</small></strong>
+              <p>团队加分只计入伙伴组排行榜，不计入个人提交分数。Month 1: Week 1-4 · Month 2: Week 5-end.</p>
               <div className="team-bonus-rule-list">
                 <div>
-                  <span>伙伴两人当月都完成五项并通过审核<br />Both buddies complete all five approved sections in the month</span>
+                  <span>每月一次：伙伴两人当月都完成五项并通过审核<br />Monthly: both buddies complete all five approved sections</span>
                   <b>+3 pts</b>
                 </div>
                 <div>
-                  <span>同一周两人都有 Visitor<br />Both buddies have Visitor in the same week</span>
+                  <span>每月一次：伙伴组当月累计 2 位 Visitor<br />Monthly: buddy team reaches 2 approved Visitors</span>
                   <b>+5 pts</b>
                 </div>
                 <div>
-                  <span>连续两周团队 Visitor 达 4 位<br />Team reaches 4 Visitors across two weeks</span>
+                  <span>每月一次：伙伴组当月累计 4 位或以上 Visitor，团队只拿 +10，不再另外拿 +5<br />Monthly: 4+ approved Visitors earns +10 only, no extra +5</span>
                   <b>+10 pts</b>
                 </div>
                 <div>
-                  <span>队友前两周 Referral 与 Visitor 都为 0，另一位有 Visitor 或 3 个 Referral<br />Rescue teammate: one buddy has 0 Referral and 0 Visitor, the other has Visitor or 3 Referrals</span>
+                  <span>每 2 个星期：一位伙伴 Referral、Visitor、TYFCB 都为 0；另一位有 1 Visitor 或 3 Referral<br />2-week rescue: one buddy empty, the other carries Visitor or Referrals</span>
                   <b>+5 pts</b>
                 </div>
               </div>
@@ -588,6 +589,7 @@ function GameLeaderboard() {
           const memberScore = Number(team.member_score ?? team.total_score ?? team.score ?? 0);
           const teamBonusPoints = Number(team.team_bonus_points || 0);
           const totalScore = Number(team.total_score || team.score || 0);
+          const bonusAwards = Array.isArray(team.team_bonus_awards) ? team.team_bonus_awards : [];
           const teamName = team.team_name || team.name || `Team ${team.team_no}`;
           const memberNames = Array.isArray(team.members) && team.members.length ? team.members.join(" + ") : `${team.member_a_name || team.member_one || "会员 A Member A"} + ${team.member_b_name || team.member_two || "会员 B Member B"}`;
           return (
@@ -597,7 +599,12 @@ function GameLeaderboard() {
               <strong>{teamName}</strong>
               {isCompact && <span className="compact-member-names">{memberNames}</span>}
               {!isCompact && <span className="leader-member-names">{memberNames}</span>}
-              {!isCompact && <span className="leader-score-breakdown">Member {memberScore} · Bonus +{teamBonusPoints}</span>}
+              {!isCompact && <span className="leader-score-breakdown">Member {memberScore} · Team bonus +{teamBonusPoints} · Final {totalScore}</span>}
+              {!isCompact && bonusAwards.length > 0 && (
+                <span className="leader-bonus-awards">
+                  {bonusAwards.map((award) => `${teamBonusShortLabel(award.bonus_type)} ${teamBonusPeriodLabel(award.period_key)} +${award.points}`).join(" · ")}
+                </span>
+              )}
             </div>
             <b>{totalScore} pts</b>
           </div>
@@ -2658,6 +2665,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
   const [members, setMembers] = useState([]);
   const [memberScores, setMemberScores] = useState({});
   const [memberSubmissions, setMemberSubmissions] = useState([]);
+  const [teamBoard, setTeamBoard] = useState([]);
   const [newMember, setNewMember] = useState({ full_name: "", email: "", company: "", phone: "", reviewer_owner: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -2670,15 +2678,18 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
       setMembers(DEMO_MEMBERS);
       setMemberScores(buildMemberScores(DEMO_SUBMISSIONS));
       setMemberSubmissions(DEMO_SUBMISSIONS);
+      setTeamBoard(DEMO_BOARD);
       return;
     }
-    const [{ data: memberData }, { data: submissionData }] = await Promise.all([
+    const [{ data: memberData }, { data: submissionData }, { data: leaderboardData }] = await Promise.all([
       supabase.rpc("admin_members", { p_token: adminToken }),
       supabase.rpc("admin_submissions", { p_token: adminToken }),
+      supabase.rpc("team_leaderboard"),
     ]);
     setMembers(memberData || []);
     setMemberScores(buildMemberScores(submissionData || []));
     setMemberSubmissions(submissionData || []);
+    setTeamBoard(leaderboardData || []);
   }
 
   useEffect(() => { load(); }, [adminToken]);
@@ -2778,6 +2789,8 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
     groups[key].members.push(member);
     return groups;
   }, {})).sort((a, b) => (a.teamNo || 9999) - (b.teamNo || 9999));
+  const teamBoardById = new Map(teamBoard.map((team) => [String(team.team_id || ""), team]));
+  const teamBoardByNo = new Map(teamBoard.map((team) => [String(team.team_no || ""), team]));
   const editingMemberSubmissions = editingMember
     ? memberSubmissions
       .filter((submission) => submission.member_id === editingMember.id)
@@ -2834,6 +2847,7 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
                 key={group.id}
                 group={group}
                 memberScores={memberScores}
+                teamBoardRow={teamBoardById.get(String(group.id)) || teamBoardByNo.get(String(group.teamNo || ""))}
               />
             ))}
           </div>
@@ -2975,8 +2989,11 @@ function MemberSubmissionHistory({ submissions }) {
   );
 }
 
-function BuddyGroupCard({ group, memberScores }) {
-  const teamScore = group.members.reduce((total, member) => total + Number(memberScores[member.id]?.score || 0), 0);
+function BuddyGroupCard({ group, memberScores, teamBoardRow = null }) {
+  const memberScore = group.members.reduce((total, member) => total + Number(memberScores[member.id]?.score || 0), 0);
+  const teamBonusPoints = Number(teamBoardRow?.team_bonus_points || 0);
+  const teamScore = Number(teamBoardRow?.total_score ?? memberScore + teamBonusPoints);
+  const bonusAwards = Array.isArray(teamBoardRow?.team_bonus_awards) ? teamBoardRow.team_bonus_awards : [];
   const teamSubmissions = group.members.reduce((total, member) => total + Number(memberScores[member.id]?.submissions || 0), 0);
 
   return (
@@ -2988,6 +3005,17 @@ function BuddyGroupCard({ group, memberScores }) {
         </div>
         <strong>{teamScore} pts</strong>
       </div>
+      {teamBonusPoints > 0 && (
+        <div className="buddy-team-bonus-strip">
+          <div>
+            <span>Member {memberScore} pts · Team bonus +{teamBonusPoints} · Final {teamScore} pts</span>
+            {bonusAwards.length > 0 && (
+              <small>{bonusAwards.map((award) => `${teamBonusShortLabel(award.bonus_type)} ${teamBonusPeriodLabel(award.period_key)} +${award.points}`).join(" · ")}</small>
+            )}
+          </div>
+          <b>+{teamBonusPoints}</b>
+        </div>
+      )}
       <div className="buddy-member-list">
         {group.members.map((member) => (
           <BuddyMiniRow key={member.id} member={member} scoreSummary={memberScores[member.id]} />
@@ -3659,21 +3687,21 @@ const TEAM_BONUS_OPTIONS = [
     points: 3,
   },
   {
-    type: "both_buddies_visitor_weekly",
-    label: "Both buddies visitor 来宾团队加分",
-    description: "Both buddies each have at least one approved Visitor in the same week. 同一周两人都有已批准 Visitor。",
+    type: "monthly_visitor_2",
+    label: "Monthly 2 Visitors 月度来宾加分",
+    description: "Buddy team reaches 2 approved Visitors in the campaign month. 伙伴组当月累计 2 位已批准 Visitor。",
     points: 5,
   },
   {
-    type: "four_visitor_two_week",
-    label: "4 visitors / 2 weeks 双人行动加分",
-    description: "Buddy team reaches 4 approved Visitors across a two-week window. 连续两周团队 Visitor 达 4 位。",
+    type: "monthly_visitor_4",
+    label: "Monthly 4 Visitors 月度来宾高阶加分",
+    description: "Buddy team reaches 4 approved Visitors in the campaign month. Highest Visitor tier only. 伙伴组当月累计 4 位 Visitor，只取最高不叠加。",
     points: 10,
   },
   {
     type: "rescue_teammate",
     label: "Rescue teammate 逆风翻盘",
-    description: "Previous two weeks: one buddy submitted both weeks with 0 Referral and 0 Visitor; the other has Visitor or 3 Referrals. 前两周一位队友已提交但 Referral 与 Visitor 为 0，另一位有 Visitor 或 3 个 Referral。",
+    description: "Previous two weeks: one buddy has 0 Referral, 0 Visitor, and 0 TYFCB; the other has 1 Visitor or 3 Referrals. 前两周一位队友 Referral、Visitor、TYFCB 都为 0，另一位有 1 Visitor 或 3 Referral。",
     points: 5,
   },
 ];
@@ -3716,6 +3744,21 @@ function teamBonusLabel(type) {
   return TEAM_BONUS_OPTIONS.find((option) => option.type === type)?.label || type;
 }
 
+function teamBonusShortLabel(type) {
+  if (type === "all_five_buddy_monthly") return "All-five";
+  if (type === "monthly_visitor_2") return "Visitor 2";
+  if (type === "monthly_visitor_4") return "Visitor 4";
+  if (type === "rescue_teammate") return "Rescue";
+  return type;
+}
+
+function teamBonusPeriodLabel(periodKey = "") {
+  if (periodKey === "month-1") return "M1";
+  if (periodKey === "month-2") return "M2";
+  if (String(periodKey).startsWith("rescue-")) return String(periodKey).replace("rescue-", "W");
+  return String(periodKey || "");
+}
+
 function teamBonusNotQualifiedReason(option, submission, sectionRows) {
   if (option.type === "all_five_buddy_monthly") {
     const missingApprovedSections = sectionRows
@@ -3727,19 +3770,19 @@ function teamBonusNotQualifiedReason(option, submission, sectionRows) {
     return "This member is complete, but the buddy pair has not both completed all five approved sections in the month. 本人已完成，但伙伴两人当月五项未同时达成。";
   }
 
-  if (option.type === "both_buddies_visitor_weekly") {
+  if (option.type === "monthly_visitor_2") {
     if (Number(submission.visitors || 0) <= 0 || submission.visitor_status !== "approved") {
       return "This submission has no approved Visitor yet. 此提交还没有已批准 Visitor。";
     }
-    return "The buddy partner has no approved Visitor in this same week yet. 同一周伙伴尚未有已批准 Visitor。";
+    return "The buddy team has not reached 2 approved Visitors in this campaign month. 伙伴组当月 Visitor 未达到 2 位。";
   }
 
-  if (option.type === "four_visitor_two_week") {
-    return "The buddy team has fewer than 4 approved Visitors across the two-week window. 连续两周团队已批准 Visitor 未达到 4 位。";
+  if (option.type === "monthly_visitor_4") {
+    return "The buddy team has not reached 4 approved Visitors in this campaign month. 伙伴组当月 Visitor 未达到 4 位。";
   }
 
   if (option.type === "rescue_teammate") {
-    return "The previous two-week rescue condition was not met, or the teammate did not submit both weeks. 前两周逆风翻盘条件未达成，或队友没有连续两周提交。";
+    return "The previous two-week rescue condition was not met. 前两周逆风翻盘条件未达成。";
   }
 
   return "Rule condition has not been met yet. 条件尚未达成。";
@@ -3773,11 +3816,6 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   const calculatedScore = finalReviewStatus === "approved" ? approvedSectionPoints + Number(bonusPoints || 0) + monthlyBonus : 0;
   const teamBonusAwards = Array.isArray(item.team_bonus_awards) ? item.team_bonus_awards : [];
   const teamBonusTotal = teamBonusAwards.reduce((total, award) => total + Number(award.points || 0), 0);
-  const teamBonusOptionRows = TEAM_BONUS_OPTIONS.map((option) => ({
-    ...option,
-    awards: teamBonusAwards.filter((award) => award.bonus_type === option.type),
-    notQualifiedReason: teamBonusNotQualifiedReason(option, mergedItem, sectionRows),
-  }));
   const relatedLogs = Array.isArray(item.action_logs) ? item.action_logs : [];
   const currentReviewStatus = submissionReviewStatus(mergedItem);
   const latestCorrectionEmailLog = relatedLogs.find((log) => log.action === "email_member_rejection");
@@ -3992,30 +4030,13 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
             <Award />
             <div>
               <h3>Buddy team bonus 团队加分</h3>
-              <p>These points are added to the leaderboard, not this member receipt. 这些分数只计入伙伴组排行榜。</p>
+              <p>Calculated at buddy-group level after final approval. 团队加分会在最终批准后，于伙伴组排行榜计算。</p>
             </div>
           </div>
-          <div className="team-bonus-list">
-            {teamBonusOptionRows.map((option) => {
-              const awarded = option.awards.length > 0;
-              const awardedPeriods = option.awards
-                .map((award) => `${award.period_key}${award.week_id ? ` · Week ${award.week_id}` : ""}`)
-                .join(", ");
-              return (
-                <div className={awarded ? "team-bonus-row awarded" : "team-bonus-row not-qualified"} key={option.type}>
-                  <div>
-                    <strong>{option.label}</strong>
-                    <span>{option.description}</span>
-                    <small>{awarded ? `Awarded 已获得: ${awardedPeriods}` : `Not qualified: ${option.notQualifiedReason}`}</small>
-                  </div>
-                  <aside>
-                    <b>+{option.points} pts</b>
-                    <em>{awarded ? "Awarded 已加分" : "Not qualified"}</em>
-                  </aside>
-                </div>
-              );
-            })}
-          </div>
+          <p className="field-remark">
+            Current buddy team bonus total: +{teamBonusTotal} pts. Full rule status belongs to the buddy group, not this individual submission.
+            目前团队加分：+{teamBonusTotal} 分。完整规则状态归伙伴组，不归个人提交。
+          </p>
         </section>
 
         <section className="section-review-list">
