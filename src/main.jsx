@@ -3278,6 +3278,8 @@ function actionLogLabel(action) {
     admin_update_member: "Member edited 编辑会员",
     admin_assign_buddy_pair: "Buddy pair assigned 分配伙伴组",
     admin_clear_buddy_pair: "Buddy pair cleared 清除伙伴组",
+    admin_finalize_approved: "Final approved 最终批准",
+    admin_finalize_rejected: "Final rejected 最终拒绝",
     email_member_submission: "Submission email sent 提交邮件已发送",
     email_admin_submission: "Admin notification email sent 管理员通知邮件已发送",
     email_member_rejection: "Rejection email sent 拒绝通知邮件已发送",
@@ -3290,6 +3292,7 @@ function actionLogDetail(log) {
   if (Array.isArray(details.rejected_sections) && details.rejected_sections.length) {
     return `${details.status || "sent"} · ${details.recipient || "no recipient"} · ${details.rejected_sections.length} rejected section(s)`;
   }
+  if (details.review_status) return `Final status 最终状态: ${details.review_status}`;
   if (details.reason) return `Reason 原因: ${details.reason}`;
   if (details.recipient || details.status || details.subject) {
     return `${details.status || "sent"} · ${details.recipient || "no recipient"}${details.subject ? ` · ${details.subject}` : ""}`;
@@ -3555,7 +3558,7 @@ function SubmissionTable({ items, demo = false, adminToken = "", onUpdated, empt
   if (items.length === 0) {
     return <p className="empty-state">{emptyLabel}</p>;
   }
-  const statusOrder = ["Submitted", "Approved", "Rejected", "Archived"];
+  const statusOrder = ["Approving", "Approved", "Rejected", "Archived"];
   const groupedItems = statusOrder
     .map((status) => ({
       status,
@@ -3624,6 +3627,9 @@ function SubmissionTable({ items, demo = false, adminToken = "", onUpdated, empt
 
 function submissionReviewStatus(item) {
   if (item.status === "archived") return "Archived";
+  if (item.review_status === "approved") return "Approved";
+  if (item.review_status === "rejected") return "Rejected";
+  if (item.review_status === "reviewing") return "Approving";
   const submittedStatuses = [
     Number(item.one_to_one || 0) > 0 ? item.one_to_one_status : null,
     Number(item.training || 0) > 0 ? item.training_status : null,
@@ -3631,9 +3637,8 @@ function submissionReviewStatus(item) {
     Number(item.tyfcb || 0) > 0 ? item.tyfcb_status : null,
     Number(item.visitors || 0) > 0 ? item.visitor_status : null,
   ].filter(Boolean);
-  if (submittedStatuses.some((status) => status === "rejected")) return "Rejected";
   if (submittedStatuses.length > 0 && submittedStatuses.every((status) => status === "approved")) return "Approved";
-  return "Submitted";
+  return "Approving";
 }
 
 const REVIEW_SECTIONS = [
@@ -3753,15 +3758,17 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   const [reviewMessageField, setReviewMessageField] = useState("");
   const [confirmCorrectionEmail, setConfirmCorrectionEmail] = useState(false);
   const [sendingCorrectionEmail, setSendingCorrectionEmail] = useState(false);
+  const [finalizingReview, setFinalizingReview] = useState(false);
+  const [finalReviewStatus, setFinalReviewStatus] = useState(item.review_status || "reviewing");
   const [correctionEmailMessage, setCorrectionEmailMessage] = useState("");
   const [correctionEmailSentAt, setCorrectionEmailSentAt] = useState("");
-  const mergedItem = { ...item, ...statusOverrides, admin_bonus_points: bonusPoints };
+  const mergedItem = { ...item, ...statusOverrides, admin_bonus_points: bonusPoints, review_status: finalReviewStatus };
   const sectionRows = submissionSectionRows(mergedItem, statusOverrides);
   const submittedSectionRows = sectionRows.filter((row) => row.needsReview);
   const approvedSectionPoints = sectionRows.reduce((total, row) => total + row.points, 0);
   const allFiveSubmitted = sectionRows.every((row) => row.needsReview);
   const monthlyBonus = Number(item.monthly_completion_bonus_points || 0);
-  const calculatedScore = approvedSectionPoints + Number(bonusPoints || 0) + monthlyBonus;
+  const calculatedScore = finalReviewStatus === "approved" ? approvedSectionPoints + Number(bonusPoints || 0) + monthlyBonus : 0;
   const teamBonusAwards = Array.isArray(item.team_bonus_awards) ? item.team_bonus_awards : [];
   const teamBonusTotal = teamBonusAwards.reduce((total, award) => total + Number(award.points || 0), 0);
   const teamBonusOptionRows = TEAM_BONUS_OPTIONS.map((option) => ({
@@ -3772,8 +3779,9 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   const relatedLogs = Array.isArray(item.action_logs) ? item.action_logs : [];
   const currentReviewStatus = submissionReviewStatus(mergedItem);
   const latestCorrectionEmailLog = relatedLogs.find((log) => log.action === "email_member_rejection");
-  const latestRejectLog = relatedLogs.find((log) => log.action === "admin_reject_status" || log.action === "admin_reject");
   const rejectedSectionRows = submittedSectionRows.filter((row) => row.status === "rejected");
+  const pendingSectionRows = submittedSectionRows.filter((row) => row.status === "pending");
+  const allSubmittedSectionsApproved = submittedSectionRows.length > 0 && submittedSectionRows.every((row) => row.status === "approved");
   const approvedSectionLabels = submittedSectionRows
     .filter((row) => row.status === "approved")
     .map((row) => `${row.label} ${row.zh}`);
@@ -3796,19 +3804,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
     : latestCorrectionEmailLog?.created_at
       ? new Date(latestCorrectionEmailLog.created_at).getTime()
       : 0;
-  const latestRejectTime = latestRejectLog?.created_at ? new Date(latestRejectLog.created_at).getTime() : 0;
-  const hasNewLocalRejectedSection = rejectedSectionRows.some((row) => statusOverrides[row.statusField] === "rejected");
-  const rejectedReviewNeedsEmail = rejectedSectionRows.length > 0 && (hasNewLocalRejectedSection || !latestEmailTime || latestEmailTime < latestRejectTime);
-  const closeBlockedByCorrectionEmail = rejectedReviewNeedsEmail;
-
-  function handleClose() {
-    if (closeBlockedByCorrectionEmail) {
-      setCorrectionEmailMessage("Please send the correction email before closing. 请先发送修正通知，才能退出。");
-      setConfirmCorrectionEmail(false);
-      return;
-    }
-    onClose?.();
-  }
+  const finalActionBlocked = pendingSectionRows.length > 0;
 
   async function saveBonus(event) {
     event.preventDefault();
@@ -3870,12 +3866,36 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
     setStatusOverrides((current) => ({ ...current, [row.statusField]: value }));
     setConfirmReview(null);
     setRejectReasonField("");
+    setFinalReviewStatus("reviewing");
     setReviewBusy(false);
     setReviewMessage(value === "approved" ? "Section approved. 已批准此项目。" : "Section rejected. 已拒绝此项目。");
     setReviewMessageField(row.statusField);
-    setCorrectionEmailMessage(value === "rejected" ? "Rejected section saved. Send one correction email before closing. 已保存拒绝项目，请发送一次修正通知后再退出。" : "");
+    setCorrectionEmailMessage(value === "rejected" ? "Rejected section saved. Use final action to send one correction email. 已保存拒绝项目，请使用最终操作发送一次修正通知。" : "");
     if (value === "rejected") setConfirmCorrectionEmail(false);
     onSaved?.();
+  }
+
+  async function finalizeApprovedReview() {
+    if (finalActionBlocked || !allSubmittedSectionsApproved) return;
+    setFinalizingReview(true);
+    setCorrectionEmailMessage("");
+    try {
+      if (!demo) {
+        const { error } = await supabase.rpc("admin_finalize_submission_review", {
+          p_token: adminToken,
+          p_submission_id: item.id,
+          p_value: "approved",
+        });
+        if (error) throw error;
+      }
+      setFinalReviewStatus("approved");
+      setCorrectionEmailMessage("Submission finalized as approved. 已完成最终批准。");
+      onSaved?.();
+    } catch (error) {
+      setCorrectionEmailMessage(`Final approval failed. 最终批准失败。 ${error.message || ""}`);
+    } finally {
+      setFinalizingReview(false);
+    }
   }
 
   async function sendCorrectionEmail() {
@@ -3913,9 +3933,18 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
         }
       }
       const sentAt = new Date().toISOString();
+      if (!demo) {
+        const { error } = await supabase.rpc("admin_finalize_submission_review", {
+          p_token: adminToken,
+          p_submission_id: item.id,
+          p_value: "rejected",
+        });
+        if (error) throw error;
+      }
       setCorrectionEmailSentAt(sentAt);
+      setFinalReviewStatus("rejected");
       setConfirmCorrectionEmail(false);
-      setCorrectionEmailMessage("Correction email sent. You can now close this review. 修正通知已发送，现在可以退出。");
+      setCorrectionEmailMessage("Correction email sent and submission finalized as rejected. 修正通知已发送，并已完成最终拒绝。");
       onSaved?.();
     } catch (error) {
       setCorrectionEmailMessage(`Correction email failed. Please retry. 修正通知发送失败，请重试。 ${error.message || ""}`);
@@ -3927,7 +3956,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   return createPortal(
     <div className="detail-backdrop" role="dialog" aria-modal="true">
       <section className="detail-panel submission-review-panel">
-        <button className="icon-button detail-close" onClick={handleClose} aria-label="Close details">
+        <button className="icon-button detail-close" onClick={onClose} aria-label="Close details">
           <X />
         </button>
         <div className="submission-review-head">
@@ -4032,7 +4061,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
                   {isConfirmingRow ? (
                     <div className={confirmReview.value === "approved" ? "confirm-box approve inline-confirm-box" : "confirm-box reject inline-confirm-box"}>
                       <strong>{confirmReview.value === "approved" ? "Confirm approve? 确认批准？" : "Confirm reject? 确认拒绝？"}</strong>
-                      <span>{row.label} {row.zh} · {confirmReview.value === "approved" ? "Score will be recalculated." : "Overall status will show Rejected."}</span>
+                      <span>{row.label} {row.zh} · {confirmReview.value === "approved" ? "Section will be marked approved. Final approval still required." : "Section will be marked rejected. Final correction email still required."}</span>
                       <div className="button-row">
                         <button className="ghost-button" type="button" onClick={() => setConfirmReview(null)}>Cancel 取消</button>
                         <button className={confirmReview.value === "approved" ? "primary-button" : "danger-button"} type="button" disabled={reviewBusy} onClick={confirmSectionReview}>
@@ -4053,37 +4082,46 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
           )}
         </section>
 
-        {rejectedSectionRows.length > 0 && (
-          <section className="correction-email-panel">
-            <div>
-              <strong>Final correction notice 最终修正通知</strong>
-              <span>
-                {rejectedReviewNeedsEmail
-                  ? "Rejected section(s) found. Send one compiled email before closing this review."
-                  : "Correction email already sent. You may resend if reasons changed."}
-                {" "}
-                {rejectedReviewNeedsEmail ? "发现拒绝项目，退出前需发送一次整合通知。" : "已发送修正通知，如原因有更改可重新发送。"}
-              </span>
+        <section className="correction-email-panel">
+          <div>
+            <strong>Final review submit 最终审核提交</strong>
+            <span>
+              {finalActionBlocked
+                ? "Finish all section reviews first. 请先完成所有分项审核。"
+                : rejectedSectionRows.length > 0
+                  ? "Rejected section(s) found. Finalize and send one compiled correction email."
+                  : "All submitted section(s) are approved. Finalize approval to count the score."}
+            </span>
+            {rejectedSectionRows.length > 0 && (
               <small>
                 {rejectedCorrections.map((section) => `${section.label}: ${section.reason || "Missing reason"}`).join(" · ")}
               </small>
-            </div>
-            {confirmCorrectionEmail && (
-              <div className="confirm-box reject inline-confirm-box">
-                <strong>Send correction email? 确认发送修正通知？</strong>
-                <span>This sends one email with all rejected sections and reasons. 将一次性发送所有拒绝项目与原因。</span>
-              </div>
             )}
-            <button className="danger-button" type="button" disabled={sendingCorrectionEmail || missingCorrectionReasons.length > 0} onClick={sendCorrectionEmail}>
-              {sendingCorrectionEmail ? <Loader2 className="spin" /> : <Mail />}
-              {latestEmailTime ? "Resend correction email 重新发送修正通知" : "Send correction email 发送修正通知"}
+          </div>
+          {rejectedSectionRows.length > 0 ? (
+            <>
+              {confirmCorrectionEmail && (
+                <div className="confirm-box reject inline-confirm-box">
+                  <strong>Finalize rejected and send email? 确认最终拒绝并发送修正通知？</strong>
+                  <span>This sends one email with all rejected sections, then marks this submission as Rejected. 将一次性发送所有拒绝项目，然后标记为最终拒绝。</span>
+                </div>
+              )}
+              <button className="danger-button" type="button" disabled={finalActionBlocked || sendingCorrectionEmail || missingCorrectionReasons.length > 0} onClick={sendCorrectionEmail}>
+                {sendingCorrectionEmail ? <Loader2 className="spin" /> : <Mail />}
+                {latestEmailTime || finalReviewStatus === "rejected" ? "Resend correction email 重新发送修正通知" : "Finalize & send correction email 完成并发送修正通知"}
+              </button>
+              {missingCorrectionReasons.length > 0 && (
+                <p className="section-review-message">Some rejected sections have no reason. 部分拒绝项目没有原因。</p>
+              )}
+            </>
+          ) : (
+            <button className="primary-button" type="button" disabled={finalActionBlocked || !allSubmittedSectionsApproved || finalizingReview} onClick={finalizeApprovedReview}>
+              {finalizingReview ? <Loader2 className="spin" /> : <CheckCircle2 />}
+              Finalize approval 完成批准
             </button>
-            {missingCorrectionReasons.length > 0 && (
-              <p className="section-review-message">Some rejected sections have no reason. 部分拒绝项目没有原因。</p>
-            )}
-            {correctionEmailMessage && <p className="notice">{correctionEmailMessage}</p>}
-          </section>
-        )}
+          )}
+          {correctionEmailMessage && <p className="notice">{correctionEmailMessage}</p>}
+        </section>
 
         {allFiveSubmitted && (
           <p className="field-remark">
