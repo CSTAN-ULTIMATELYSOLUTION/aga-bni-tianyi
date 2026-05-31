@@ -3558,7 +3558,7 @@ function SubmissionTable({ items, demo = false, adminToken = "", onUpdated, empt
   if (items.length === 0) {
     return <p className="empty-state">{emptyLabel}</p>;
   }
-  const statusOrder = ["Approving", "Approved", "Rejected", "Archived"];
+  const statusOrder = ["Submitted", "Approving", "Approved", "Rejected", "Archived"];
   const groupedItems = statusOrder
     .map((status) => ({
       status,
@@ -3630,6 +3630,7 @@ function submissionReviewStatus(item) {
   if (item.review_status === "approved") return "Approved";
   if (item.review_status === "rejected") return "Rejected";
   if (item.review_status === "reviewing") return "Approving";
+  if (item.review_status === "submitted") return "Submitted";
   const submittedStatuses = [
     Number(item.one_to_one || 0) > 0 ? item.one_to_one_status : null,
     Number(item.training || 0) > 0 ? item.training_status : null,
@@ -3638,7 +3639,8 @@ function submissionReviewStatus(item) {
     Number(item.visitors || 0) > 0 ? item.visitor_status : null,
   ].filter(Boolean);
   if (submittedStatuses.length > 0 && submittedStatuses.every((status) => status === "approved")) return "Approved";
-  return "Approving";
+  if (submittedStatuses.some((status) => status === "approved" || status === "rejected")) return "Approving";
+  return "Submitted";
 }
 
 const REVIEW_SECTIONS = [
@@ -3759,7 +3761,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   const [confirmCorrectionEmail, setConfirmCorrectionEmail] = useState(false);
   const [sendingCorrectionEmail, setSendingCorrectionEmail] = useState(false);
   const [finalizingReview, setFinalizingReview] = useState(false);
-  const [finalReviewStatus, setFinalReviewStatus] = useState(item.review_status || "reviewing");
+  const [finalReviewStatus, setFinalReviewStatus] = useState(item.review_status || "submitted");
   const [correctionEmailMessage, setCorrectionEmailMessage] = useState("");
   const [correctionEmailSentAt, setCorrectionEmailSentAt] = useState("");
   const mergedItem = { ...item, ...statusOverrides, admin_bonus_points: bonusPoints, review_status: finalReviewStatus };
@@ -3804,7 +3806,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
     : latestCorrectionEmailLog?.created_at
       ? new Date(latestCorrectionEmailLog.created_at).getTime()
       : 0;
-  const finalActionBlocked = pendingSectionRows.length > 0;
+  const approvalFinalActionBlocked = pendingSectionRows.length > 0;
 
   async function saveBonus(event) {
     event.preventDefault();
@@ -3876,7 +3878,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
   }
 
   async function finalizeApprovedReview() {
-    if (finalActionBlocked || !allSubmittedSectionsApproved) return;
+    if (approvalFinalActionBlocked || !allSubmittedSectionsApproved) return;
     setFinalizingReview(true);
     setCorrectionEmailMessage("");
     try {
@@ -4086,10 +4088,10 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
           <div>
             <strong>Final review submit 最终审核提交</strong>
             <span>
-              {finalActionBlocked
+              {rejectedSectionRows.length > 0
+                ? "Rejected section(s) found. Finalize and send one compiled correction email."
+                : approvalFinalActionBlocked
                 ? "Finish all section reviews first. 请先完成所有分项审核。"
-                : rejectedSectionRows.length > 0
-                  ? "Rejected section(s) found. Finalize and send one compiled correction email."
                   : "All submitted section(s) are approved. Finalize approval to count the score."}
             </span>
             {rejectedSectionRows.length > 0 && (
@@ -4106,7 +4108,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
                   <span>This sends one email with all rejected sections, then marks this submission as Rejected. 将一次性发送所有拒绝项目，然后标记为最终拒绝。</span>
                 </div>
               )}
-              <button className="danger-button" type="button" disabled={finalActionBlocked || sendingCorrectionEmail || missingCorrectionReasons.length > 0} onClick={sendCorrectionEmail}>
+              <button className="danger-button" type="button" disabled={sendingCorrectionEmail || missingCorrectionReasons.length > 0} onClick={sendCorrectionEmail}>
                 {sendingCorrectionEmail ? <Loader2 className="spin" /> : <Mail />}
                 {latestEmailTime || finalReviewStatus === "rejected" ? "Resend correction email 重新发送修正通知" : "Finalize & send correction email 完成并发送修正通知"}
               </button>
@@ -4115,7 +4117,7 @@ function SubmissionDetail({ item, demo = false, adminToken = "", onSaved, onClos
               )}
             </>
           ) : (
-            <button className="primary-button" type="button" disabled={finalActionBlocked || !allSubmittedSectionsApproved || finalizingReview} onClick={finalizeApprovedReview}>
+            <button className="primary-button" type="button" disabled={approvalFinalActionBlocked || !allSubmittedSectionsApproved || finalizingReview} onClick={finalizeApprovedReview}>
               {finalizingReview ? <Loader2 className="spin" /> : <CheckCircle2 />}
               Finalize approval 完成批准
             </button>
