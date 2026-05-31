@@ -123,14 +123,19 @@ async function logEmailEvent({ submissionId, memberEmail, action, recipient, sta
     auth: { persistSession: false },
   });
 
-  await supabase.rpc("log_email_event", {
-    p_submission_id: submissionId,
-    p_member_email: memberEmail,
-    p_action: action,
-    p_recipient: recipient,
-    p_status: status,
-    p_details: details || {},
-  }).catch(() => {});
+  try {
+    const { error } = await supabase.rpc("log_email_event", {
+      p_submission_id: submissionId,
+      p_member_email: memberEmail,
+      p_action: action,
+      p_recipient: recipient,
+      p_status: status,
+      p_details: details || {},
+    });
+    if (error) console.error("[rejection-email] email log failed", error.message);
+  } catch (error) {
+    console.error("[rejection-email] email log crashed", error.message);
+  }
 }
 
 function emailShell({ title, subtitle, body }) {
