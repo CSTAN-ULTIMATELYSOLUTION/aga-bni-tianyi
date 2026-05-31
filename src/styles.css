@@ -248,7 +248,7 @@ svg { width: 18px; height: 18px; }
 dl { display: grid; gap: 8px; text-align: left; }
 dl div { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 8px; }
 dt { color: var(--muted); } dd { margin: 0; font-weight: 800; }
-.feature-banner { margin-top: auto; overflow: hidden; border-radius: 18px; border: 1px solid rgba(245,197,66,.28); background: linear-gradient(90deg, rgba(245,197,66,.18), rgba(232,82,26,.12)); padding: 10px 0; }
+.feature-banner { margin-top: 10px; overflow: hidden; border-radius: 18px; border: 1px solid rgba(245,197,66,.28); background: linear-gradient(90deg, rgba(245,197,66,.18), rgba(232,82,26,.12)); padding: 10px 0; }
 .feature-track { display: flex; width: max-content; gap: 12px; animation: marquee 24s linear infinite; }
 .feature-track a { display: inline-flex; align-items: center; white-space: nowrap; color: #07142f; background: var(--gold); border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 900; box-shadow: 0 8px 18px rgba(245,158,11,.14); }
 .feature-track a:hover { transform: translateY(-1px); background: #ffd166; }
