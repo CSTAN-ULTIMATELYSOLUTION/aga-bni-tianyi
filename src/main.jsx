@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  ArrowLeft,
   Award,
   BarChart3,
   CheckCircle2,
@@ -657,6 +658,7 @@ function WeeklyUpdatePage() {
     return (
       <Shell>
         <HeroHeader />
+        <GameRouteBackLink />
         <WeekCountdownCard />
         <WeeklyDesk member={DEMO_MEMBER} demo />
       </Shell>
@@ -666,6 +668,7 @@ function WeeklyUpdatePage() {
   return (
     <Shell>
       <HeroHeader />
+      <GameRouteBackLink />
       <WeekCountdownCard />
       {checkedAccess ? (
         <WeeklyDesk
@@ -680,6 +683,15 @@ function WeeklyUpdatePage() {
         <WeeklyDesk member={member} />
       )}
     </Shell>
+  );
+}
+
+function GameRouteBackLink() {
+  return (
+    <Link className="game-route-back-link" to="/game">
+      <ArrowLeft />
+      <span>Back to Game 返回游戏规则</span>
+    </Link>
   );
 }
 

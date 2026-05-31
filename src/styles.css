@@ -76,6 +76,8 @@ input:focus, select:focus, textarea:focus { border-color: rgba(217,48,37,.72); b
 .primary-link { min-height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; padding: 0 16px; color: white; background: var(--orange); font-weight: 900; }
 .primary-button:disabled { opacity: .55; cursor: not-allowed; }
 .ghost-button { color: var(--text); background: rgba(255,255,255,.76); border: 1px solid var(--border); }
+.game-route-back-link { width: fit-content; min-height: 42px; display: inline-flex; align-items: center; gap: 8px; margin: -2px 0 8px; padding: 0 14px; border: 1px solid rgba(217,48,37,.14); border-radius: 999px; color: var(--text); background: rgba(255,255,255,.78); font-size: 13px; font-weight: 900; box-shadow: 0 12px 28px rgba(15,23,42,.05); }
+.game-route-back-link svg { width: 16px; height: 16px; color: var(--orange); }
 .danger-button { width: 100%; color: #450a0a; background: #fca5a5; }
 .table-action-button { min-height: 34px; color: var(--text); background: rgba(255,255,255,.8); border: 1px solid var(--border); font-size: 12px; }
 .table-danger-button { min-height: 34px; color: #450a0a; background: #fca5a5; font-size: 12px; }
