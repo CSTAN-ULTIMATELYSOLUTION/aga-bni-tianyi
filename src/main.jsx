@@ -2801,6 +2801,27 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
     groups[key].members.push(member);
     return groups;
   }, {})).sort((a, b) => (a.teamNo || 9999) - (b.teamNo || 9999));
+  const reviewerSummaries = [...REVIEWER_OPTIONS, "Unassigned"].map((reviewerName) => {
+    const assignedMembers = members.filter((member) => {
+      const owner = member.reviewer_owner || "";
+      return reviewerName === "Unassigned" ? !owner : owner === reviewerName;
+    });
+    const teamsById = assignedMembers.reduce((teams, member) => {
+      if (!member.buddy_team_id) return teams;
+      teams.set(member.buddy_team_id, member.buddy_teams?.team_no || null);
+      return teams;
+    }, new Map());
+    const teamNumbers = Array.from(teamsById.values())
+      .filter((teamNo) => teamNo !== null && typeof teamNo !== "undefined" && teamNo !== "")
+      .sort((a, b) => Number(a) - Number(b));
+    return {
+      name: reviewerName,
+      label: reviewerName === "Unassigned" ? "Unassigned 未分配" : reviewerName,
+      memberCount: assignedMembers.length,
+      teamCount: teamsById.size,
+      teamNumbers,
+    };
+  }).filter((summary) => summary.name !== "Unassigned" || summary.memberCount > 0);
   const teamBoardById = new Map(teamBoard.map((team) => [String(team.team_id || ""), team]));
   const teamBoardByNo = new Map(teamBoard.map((team) => [String(team.team_no || ""), team]));
   const editingMemberSubmissions = editingMember
@@ -2813,6 +2834,16 @@ function MemberManager({ onChanged, demo = false, adminToken = "" }) {
     <div className="admin-content">
       <section className="panel">
         <div className="section-heading"><UsersRound /><div><h2>Member list 会员名单</h2><p>Add members and assign buddy teams.</p></div></div>
+        <div className="reviewer-summary-grid" aria-label="Reviewer buddy team summary">
+          {reviewerSummaries.map((summary) => (
+            <article className="reviewer-summary-card" key={summary.name}>
+              <span>{summary.label}</span>
+              <strong>{summary.teamCount} buddy team{summary.teamCount === 1 ? "" : "s"}</strong>
+              <b>{summary.memberCount} member{summary.memberCount === 1 ? "" : "s"}</b>
+              <small>{summary.teamNumbers.length ? `Buddy ${summary.teamNumbers.join(", ")}` : "No buddy team 暂无伙伴组"}</small>
+            </article>
+          ))}
+        </div>
         <div className="member-toolbar">
           <Label text="Search member 搜索会员">
             <input placeholder="Name, email, phone, company or buddy" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
