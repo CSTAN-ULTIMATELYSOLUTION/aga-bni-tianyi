@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 const REVIEWER_CC = {
-  alice: "awpl5276@gmail.com",
+  alicia: "awpl5276@gmail.com",
   peixuan: "modernessential22@hotmail.com",
   krision: "krisionyap5298@gmail.com",
 };

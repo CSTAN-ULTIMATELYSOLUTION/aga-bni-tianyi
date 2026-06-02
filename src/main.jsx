@@ -65,7 +65,7 @@ const MEMBER_ACCESS_KEY = "tianyi-member-access";
 const AGA_AD_DISMISSED_KEY = "aga-ad-dismissed";
 const AGA_WEBSITE_URL = "https://agaventures.ai";
 const TYFCB_GOAL = 7000000;
-const REVIEWER_OPTIONS = ["PeiXuan", "Krision", "Alice"];
+const REVIEWER_OPTIONS = ["PeiXuan", "Krision", "Alicia"];
 
 function todayLabel() {
   return new Date().toLocaleDateString("en-MY", {
@@ -3098,7 +3098,7 @@ function SubmissionReview({ demo = false, adminToken = "" }) {
     { id: "all", label: "All", match: "" },
     { id: "peixuan", label: "PeiXuan", match: "peixuan" },
     { id: "krision", label: "Krision", match: "krision" },
-    { id: "alice", label: "Alice", match: "alice" },
+    { id: "alicia", label: "Alicia", match: "alicia" },
   ];
   const selectedReviewer = reviewerTabs.find((tab) => tab.id === reviewerFilter) || reviewerTabs[0];
   const reviewerFilteredItems = selectedReviewer.id === "all"
