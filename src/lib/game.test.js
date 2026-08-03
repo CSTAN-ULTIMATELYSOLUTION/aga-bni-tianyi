@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateTeamBonusAwards, currentSubmissionWeeks, evidenceKindsForForm, validateEvidenceFile } from "./game.js";
+import { buildActivityLeaderboards, calculateTeamBonusAwards, currentSubmissionWeeks, evidenceKindsForForm, validateEvidenceFile } from "./game.js";
 
 const fullActivity = {
   one_to_one: 2,
@@ -34,6 +34,38 @@ test("proof validation accepts supported image types and infers missing jpg type
 test("proof validation rejects HEIC and files over 5MB", () => {
   assert.equal(validateEvidenceFile({ name: "iphone.HEIC", type: "image/heic", size: 1024 }).reason, "heic");
   assert.equal(validateEvidenceFile({ name: "too-large.jpg", type: "image/jpeg", size: 5 * 1024 * 1024 + 1 }).reason, "size");
+});
+
+test("activity leaderboards count only approved values from active submissions", () => {
+  const leaderboards = buildActivityLeaderboards([
+    { member_id: "member-a", full_name: "Alex", status: "active", one_to_one: 2, one_to_one_status: "approved", training: 4, training_status: "pending", referrals: 3, referral_status: "approved", tyfcb: 1200, tyfcb_status: "approved", visitors: 1, visitor_status: "approved" },
+    { member_id: "member-a", full_name: "Alex", status: "archived", one_to_one: 2, one_to_one_status: "approved", referrals: 20, referral_status: "approved" },
+    { member_id: "member-b", full_name: "Bea", status: "active", one_to_one: 2, one_to_one_status: "approved", training: 2, training_status: "approved", referrals: 1, referral_status: "approved", tyfcb: 5000, tyfcb_status: "pending", visitors: 2, visitor_status: "approved" },
+  ]);
+
+  assert.deepEqual(leaderboards.one_to_one.map(({ full_name, value, rank }) => ({ full_name, value, rank })), [
+    { full_name: "Alex", value: 2, rank: 1 },
+    { full_name: "Bea", value: 2, rank: 1 },
+  ]);
+  assert.equal(leaderboards.training[0].full_name, "Bea");
+  assert.equal(leaderboards.referral[0].value, 3);
+  assert.equal(leaderboards.tyfcb[0].value, 1200);
+  assert.equal(leaderboards.visitor[0].value, 2);
+});
+
+test("activity leaderboards exclude inactive members", () => {
+  const leaderboards = buildActivityLeaderboards(
+    [
+      { member_id: "active", status: "active", referrals: 1, referral_status: "approved" },
+      { member_id: "inactive", status: "active", referrals: 50, referral_status: "approved" },
+    ],
+    [
+      { id: "active", full_name: "Active member", is_active: true },
+      { id: "inactive", full_name: "Inactive member", is_active: false },
+    ]
+  );
+
+  assert.deepEqual(leaderboards.referral.map((member) => member.full_name), ["Active member"]);
 });
 
 const approved = {

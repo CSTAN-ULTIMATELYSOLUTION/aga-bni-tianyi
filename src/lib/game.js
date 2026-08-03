@@ -258,6 +258,65 @@ export function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+const ACTIVITY_LEADERBOARD_FIELDS = {
+  one_to_one: ["one_to_one", "one_to_one_status"],
+  training: ["training", "training_status"],
+  referral: ["referrals", "referral_status"],
+  tyfcb: ["tyfcb", "tyfcb_status"],
+  visitor: ["visitors", "visitor_status"],
+};
+
+export function buildActivityLeaderboards(submissions = [], members = []) {
+  const activeMembers = members.filter((member) => member?.is_active !== false);
+  const memberById = new Map(activeMembers.map((member) => [member.id, member]));
+  const totalsByMember = new Map();
+
+  submissions.forEach((submission) => {
+    if (!submission?.member_id || submission.status === "archived") return;
+    if (members.length > 0 && !memberById.has(submission.member_id)) return;
+
+    const member = memberById.get(submission.member_id) || submission;
+    const totals = totalsByMember.get(submission.member_id) || {
+      member_id: submission.member_id,
+      full_name: member.full_name || submission.full_name || "Unknown member",
+      company: member.company || submission.company || "",
+      team_no: member.buddy_teams?.team_no || submission.team_no || null,
+      one_to_one: 0,
+      training: 0,
+      referral: 0,
+      tyfcb: 0,
+      visitor: 0,
+    };
+
+    Object.entries(ACTIVITY_LEADERBOARD_FIELDS).forEach(([category, [valueKey, statusKey]]) => {
+      if (submission[statusKey] === "approved") {
+        totals[category] += Number(submission[valueKey] || 0);
+      }
+    });
+    totalsByMember.set(submission.member_id, totals);
+  });
+
+  return Object.keys(ACTIVITY_LEADERBOARD_FIELDS).reduce((leaderboards, category) => {
+    let previousValue = null;
+    let rank = 0;
+    leaderboards[category] = [...totalsByMember.values()]
+      .filter((member) => member[category] > 0)
+      .sort((a, b) => (b[category] - a[category]) || a.full_name.localeCompare(b.full_name))
+      .map((member) => {
+        if (member[category] !== previousValue) rank += 1;
+        previousValue = member[category];
+        return { ...member, value: member[category], rank };
+      })
+      .filter((member) => member.rank <= 5)
+      .map((member) => {
+        const leaderboardMember = { ...member };
+        Object.keys(ACTIVITY_LEADERBOARD_FIELDS).forEach((field) => delete leaderboardMember[field]);
+        return leaderboardMember;
+      });
+    return leaderboards;
+  }, {});
+}
+
 export const DEMO_MEMBER = {
   id: "00000000-0000-4000-8000-000000000001",
   full_name: "Tianyi Demo Member",

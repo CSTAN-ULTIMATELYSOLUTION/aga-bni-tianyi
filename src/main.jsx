@@ -5,12 +5,14 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate,
 import {
   ArrowLeft,
   Award,
+  BadgeDollarSign,
   BarChart3,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
   Eye,
   FileImage,
+  GraduationCap,
   Handshake,
   Loader2,
   LogOut,
@@ -23,6 +25,7 @@ import {
   Trash2,
   Upload,
   UserRound,
+  UserPlus,
   UsersRound,
   X,
   XCircle,
@@ -39,6 +42,7 @@ import {
   EVIDENCE_ACCEPT,
   MAX_EVIDENCE_BYTES,
   activeSubmission,
+  buildActivityLeaderboards,
   calcScore,
   canSubmitWeek,
   currentSubmissionWeeks,
@@ -66,6 +70,13 @@ const AGA_AD_DISMISSED_KEY = "aga-ad-dismissed";
 const AGA_WEBSITE_URL = "https://agaventures.ai";
 const TYFCB_GOAL = 7000000;
 const REVIEWER_OPTIONS = ["PeiXuan", "Krision", "Alicia"];
+const ACTIVITY_LEADERBOARD_CATEGORIES = [
+  { id: "one_to_one", label: "1-2-1", zh: "一对一", unit: "次", Icon: UsersRound },
+  { id: "training", label: "Training", zh: "培训", unit: "次", Icon: GraduationCap },
+  { id: "referral", label: "Referral", zh: "引荐", unit: "个", Icon: Handshake },
+  { id: "tyfcb", label: "Thanks You Noted", zh: "感谢成交额", unit: "", Icon: BadgeDollarSign },
+  { id: "visitor", label: "Visitor", zh: "访客", unit: "位", Icon: UserPlus },
+];
 
 function todayLabel() {
   return new Date().toLocaleDateString("en-MY", {
@@ -2285,7 +2296,7 @@ function SubmissionReceipt() {
 
 function AdminPortal() {
   const [adminSession, setAdminSession] = useState(null);
-  const [demoAdmin] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-admin") === "1");
+  const [demoAdmin, setDemoAdmin] = useState(() => isLocalPreview() && sessionStorage.getItem("tianyi-demo-admin") === "1");
   const [checking, setChecking] = useState(true);
   const adminName = demoAdmin ? "Demo admin" : adminSession?.email;
 
@@ -2332,7 +2343,7 @@ function AdminPortal() {
             <button className="ghost-button" onClick={async () => {
               if (demoAdmin) {
                 sessionStorage.removeItem("tianyi-demo-admin");
-                window.location.reload();
+                setDemoAdmin(false);
                 return;
               }
               try {
@@ -2351,7 +2362,13 @@ function AdminPortal() {
       {demoAdmin ? (
         <AdminWorkspace demo />
       ) : !adminSession ? (
-        <AdminLogin onSignedIn={setAdminSession} />
+        <AdminLogin
+          onSignedIn={setAdminSession}
+          onPreview={isLocalPreview() ? () => {
+            sessionStorage.setItem("tianyi-demo-admin", "1");
+            setDemoAdmin(true);
+          } : null}
+        />
       ) : (
         <AdminWorkspace adminToken={adminSession.token} />
       )}
@@ -2359,7 +2376,7 @@ function AdminPortal() {
   );
 }
 
-function AdminLogin({ onSignedIn }) {
+function AdminLogin({ onSignedIn, onPreview = null }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -2410,6 +2427,11 @@ function AdminLogin({ onSignedIn }) {
           </Label>
           <Button disabled={busy}>{busy ? <Loader2 className="spin" /> : <ShieldCheck />} 登入 Sign in</Button>
         </form>
+        {onPreview && (
+          <button className="ghost-button" type="button" onClick={onPreview}>
+            <Eye /> 本地 Demo 预览 Preview dashboard
+          </button>
+        )}
         {message && <p className="notice">{message}</p>}
       </div>
     </section>
@@ -2526,7 +2548,7 @@ function AgaAdPopup({ onClose }) {
 
 function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
   const [board, setBoard] = useState([]);
-  const [stats, setStats] = useState({ members: 0, submissions: 0, pending_submissions: 0, weekly_missing_submissions: [], tyfcb: 0 });
+  const [stats, setStats] = useState({ members: 0, submissions: 0, pending_submissions: 0, weekly_missing_submissions: [], activity_leaders: {}, tyfcb: 0 });
   const tyfcbTotal = Number(stats.tyfcb || 0);
   const tyfcbProgress = TYFCB_GOAL ? Math.min(100, Math.round((tyfcbTotal / TYFCB_GOAL) * 100)) : 0;
   const totalSubmissions = Number(stats.submissions || 0);
@@ -2556,6 +2578,7 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
             missing_members: Math.max(0, activeMembers - submittedMembers),
           };
         }),
+        activity_leaders: buildActivityLeaderboards(DEMO_SUBMISSIONS, DEMO_MEMBERS),
         tyfcb: DEMO_SUBMISSIONS.reduce((sum, item) => sum + Number(item.tyfcb || 0), 0),
       });
       return;
@@ -2589,6 +2612,7 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
         />
         <Metric label="Teams 伙伴组" value={board.length} />
       </div>
+      <ActivityLeaderboards leaders={stats.activity_leaders} />
       <WeeklyMissingSubmissions rows={weeklyMissingSubmissions} />
       <section className="panel winning-dashboard">
         <div className="section-heading">
@@ -2628,6 +2652,55 @@ function Dashboard({ refreshKey, demo = false, adminToken = "" }) {
         </div>
       </section>
     </div>
+  );
+}
+
+function ActivityLeaderboards({ leaders = {} }) {
+  const [activeCategory, setActiveCategory] = useState(ACTIVITY_LEADERBOARD_CATEGORIES[0].id);
+  const category = ACTIVITY_LEADERBOARD_CATEGORIES.find((item) => item.id === activeCategory) || ACTIVITY_LEADERBOARD_CATEGORIES[0];
+  const rows = Array.isArray(leaders?.[category.id]) ? leaders[category.id] : [];
+
+  return (
+    <section className="panel activity-leaderboard-panel">
+      <div className="section-heading compact-heading">
+        <Medal />
+        <div>
+          <h3>个人项目排行 Member activity leaders</h3>
+          <p>仅统计有效提交中已审核通过的项目。Top five based on approved activity only.</p>
+        </div>
+      </div>
+      <div className="activity-category-tabs" role="tablist" aria-label="Member activity ranking category">
+        {ACTIVITY_LEADERBOARD_CATEGORIES.map(({ id, label, zh, Icon }) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === id}
+            className={activeCategory === id ? "active" : ""}
+            key={id}
+            onClick={() => setActiveCategory(id)}
+          >
+            <Icon />
+            <span>{label}<small>{zh}</small></span>
+          </button>
+        ))}
+      </div>
+      {rows.length ? (
+        <div className="activity-ranking-list">
+          {rows.map((member) => (
+            <article className={Number(member.rank) === 1 ? "activity-ranking-row first" : "activity-ranking-row"} key={`${category.id}-${member.member_id}`}>
+              <span className="activity-rank">#{member.rank}</span>
+              <div>
+                <strong>{member.full_name}</strong>
+                <small>{[member.company, member.team_no ? `Buddy ${member.team_no}` : ""].filter(Boolean).join(" · ") || "BNI Tian Yi member"}</small>
+              </div>
+              <b>{category.id === "tyfcb" ? money(member.value) : `${Number(member.value || 0).toLocaleString("en-MY")} ${category.unit}`}</b>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-state">此项目暂无已通过记录。No approved activity in this category yet.</p>
+      )}
+    </section>
   );
 }
 
